@@ -2,28 +2,68 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Portal Breaker – Random HP (1–10) Bricks</title>
+  <title>Portal Breaker – Responsive (Any Screen Size)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
   <!-- ===== Embedded CSS ===== -->
   <style>
-    /* ================= Reset & Box‐Sizing ================ */
-    * {
+    /* ==== Make the page fill the viewport ==== */
+    html, body {
+      width: 100%;
+      height: 100%;
       margin: 0;
       padding: 0;
-      box-sizing: border-box;
-    }
-
-    /* ================= Body Styling ================= */
-    body {
       background: #222;
-      color: #fff;
-      font-family: Arial, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
       overflow: hidden;
-      touch-action: none; /* Prevent mobile scrolling */
+      touch-action: none; /* Prevent mobile scrolling when touching canvas */
     }
 
-    /* ================= Overlays (menus, game‐over) ================= */
+    /* ==== Place‐Portals Button ==== */
+    #placePortalsBtn {
+      margin: 8px 0;
+      padding: 8px 16px;
+      font-size: 16px;
+      cursor: pointer;
+      border: none;
+      background: #3498db;
+      color: #fff;
+      border-radius: 4px;
+      transition: transform 0.1s;
+      z-index: 10;
+    }
+    #placePortalsBtn:hover {
+      transform: scale(1.05);
+    }
+    #placePortalsBtn:active {
+      transform: scale(1.0);
+    }
+
+    /* ==== Canvas Styling: scale to fit while preserving aspect ratio ==== */
+    #canvasContainer {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      background: #000;
+      overflow: hidden;
+    }
+    /* The virtual game is 480×640, so we let CSS scale that to fit */
+    #gameCanvas {
+      width: 100%;
+      height: 100%;
+      max-width: 480px;
+      max-height: 640px;
+      background: #f0f0f0;
+      image-rendering: pixelated; /* optional for crisp look */
+    }
+
+    /* ==== Overlays (Game Over, How‐to, etc.) ==== */
     .overlay {
       position: absolute;
       top: 0;
@@ -35,25 +75,27 @@
       flex-direction: column;
       align-items: center;
       justify-content: center;
+      z-index: 20;
     }
     .overlay.hidden {
       display: none;
     }
-    .overlay h1, .overlay h2 {
+    .overlay h1,
+    .overlay h2 {
       margin-bottom: 20px;
       font-size: 32px;
+      color: #fff;
     }
     .overlay p {
       margin: 10px;
       font-size: 18px;
       text-align: center;
       max-width: 80%;
+      color: #fff;
     }
-
-    /* ================= Buttons ================= */
-    button {
+    .overlay button {
+      margin-top: 20px;
       padding: 10px 20px;
-      margin: 10px;
       font-size: 18px;
       cursor: pointer;
       border: none;
@@ -62,113 +104,98 @@
       border-radius: 5px;
       transition: transform 0.1s;
     }
-    button:hover {
-      transform: scale(1.1);
+    .overlay button:hover {
+      transform: scale(1.05);
     }
-    button:active {
+    .overlay button:active {
       transform: scale(1.0);
-    }
-
-    /* ================= Canvas ================= */
-    #gameCanvas {
-      display: block;
-      margin: auto;
-      background: #f0f0f0;
-      border: 3px solid #333;
-    }
-
-    /* ================= HUD ================= */
-    .hud {
-      position: absolute;
-      top: 10px;
-      left: 10px;
-      font-size: 18px;
-      color: #000;
     }
   </style>
 </head>
 <body>
-  <!-- ===== Overlays ===== -->
-  <div id="menuScreen" class="overlay hidden">
-    <h1>Portal Breaker</h1>
-    <button id="playBtn">Play</button>
-    <button id="howToBtn">How to Play</button>
-    <button id="settingsBtn">Settings</button>
-    <button id="creditsBtn">Credits</button>
+  <!-- Place‐Portals Button -->
+  <button id="placePortalsBtn">Place Portals</button>
+
+  <!-- Container to center and scale the canvas -->
+  <div id="canvasContainer">
+    <canvas id="gameCanvas" width="480" height="640"></canvas>
   </div>
 
+  <!-- Game Over / Win Overlay -->
+  <div id="gameOverScreen" class="overlay hidden">
+    <h2 id="gameOverText">Game Over</h2>
+    <p id="finalScore">Score: 0</p>
+    <button id="restartBtn">Restart</button>
+  </div>
+
+  <!-- How to Play Overlay (optional) -->
   <div id="howToScreen" class="overlay hidden">
     <h2>How to Play</h2>
     <p>
-      1. Click (or tap) anywhere except on a brick to place <strong>Portal A</strong> (entry – blue).<br />
-      2. Click again (except on bricks) to place <strong>Portal B</strong> (exit – orange).<br />
-      3. After Portal B is placed, click‐and‐drag <strong>inside</strong> Portal B’s rectangle to freely set its exit angle. Release to stop rotating.<br />
-      4. Finally, click outside both portals/bricks to fire three balls at once (one straight, ±0.1 rad).<br />
-      Balls that enter Portal A teleport to Portal B’s center and emerge at the chosen angle.
+      1. Click “Place Portals” any time to enter portal‐placement mode.<br />
+      2. Click twice (anywhere off bricks) to place Portal A (blue) and Portal B (orange).<br />
+      3. To set Portal B’s exit angle, click‐and‐drag inside Portal B and release when oriented as you like.<br />
+      4. Click outside portals/bricks to fire three balls at once (one straight, ±0.1 rad).<br />
+      Balls that hit Portal A teleport to Portal B’s center and emerge at the chosen angle.<br />
+      5. Break all bricks to win; miss the paddle 3 times to lose.
     </p>
     <button class="backBtn">Back</button>
   </div>
 
+  <!-- Settings Overlay (audio disabled) -->
   <div id="settingsScreen" class="overlay hidden">
     <h2>Settings</h2>
-    <p>No sound or music for now.</p>
+    <p>Audio is currently disabled.</p>
     <button class="backBtn">Back</button>
   </div>
 
+  <!-- Credits Overlay -->
   <div id="creditsScreen" class="overlay hidden">
     <h2>Credits</h2>
     <p>Developed by: Your Name</p>
     <button class="backBtn">Back</button>
   </div>
 
-  <!-- ===== Game Canvas ===== -->
-  <canvas id="gameCanvas" width="480" height="640"></canvas>
-
-  <!-- ===== Game Over / Win Screen ===== -->
-  <div id="gameOverScreen" class="overlay hidden">
-    <h2 id="gameOverText">Game Over</h2>
-    <p id="finalScore">Score: 0</p>
-    <button id="restartBtn">Restart</button>
-    <button id="menuBtn">Main Menu</button>
-  </div>
-
-  <!-- ===== Embedded JavaScript ===== -->
+  <!-- ======= Embedded JavaScript ======= -->
   <script>
     // =========================
-    // Portal Breaker – Random HP (1–10) Bricks
+    // Portal Breaker – Responsive (480×640 virtual)
     // =========================
 
-    // ====== 1. Canvas & Context Setup ======
+    // ======= 1. Canvas & Scaling Setup =======
     const canvas = document.getElementById("gameCanvas");
     const ctx = canvas.getContext("2d");
-    const WIDTH = canvas.width;
-    const HEIGHT = canvas.height;
+    // Virtual game resolution:
+    const VIRTUAL_WIDTH = 480;
+    const VIRTUAL_HEIGHT = 640;
 
-    // ====== 2. Game State Variables ======
-    let gameState = "placingPortals";
+    // ======= 2. Game State =======
+    let gameState = "playing";     // “playing” or “gameover”
     let score = 0;
     let lives = 3;
 
     let bricks = [];
-    let portalA = null;   // Entry portal (blue)
-    let portalB = null;   // Exit portal (orange)
+    let portalA = null;   // entry portal
+    let portalB = null;   // exit portal
     let allowFiring = false;
 
-    let cannon, paddle;
-    let balls = [];
+    let cannon, paddle, balls = [];
 
+    // Brick dimensions & spacing (in virtual coords)
     const BRICK_WIDTH = 60;
     const BRICK_HEIGHT = 20;
     const BRICK_MARGIN = 5;
 
-    // Flag for rotating Portal B
+    // Portal‐placement anywhere state
+    let portalPlacementActive = false;
+    let nextPortalType = "A"; // place A first, then B
+
+    // Rotating Portal B
     let isRotatingB = false;
 
-    // =========================
-    // 3. Classes for Game Objects
-    // =========================
+    // ======= 3. Game Object Classes =======
 
-    // 3.1 Ball Class
+    // 3.1 Ball (virtual coords & velocity)
     class Ball {
       constructor(x, y, vx, vy) {
         this.x = x;
@@ -179,16 +206,14 @@
         this.active = true;
         this.justTeleported = false;
       }
-
       update(delta) {
         if (!this.active) return;
-
         // Move
         this.x += this.vx * delta;
         this.y += this.vy * delta;
 
         // Wall collisions (left/right)
-        if (this.x - this.radius <= 0 || this.x + this.radius >= WIDTH) {
+        if (this.x - this.radius <= 0 || this.x + this.radius >= VIRTUAL_WIDTH) {
           this.vx *= -1;
         }
         // Ceiling collision
@@ -197,18 +222,17 @@
         }
 
         // Paddle collision (bottom)
-        if (this.y + this.radius >= HEIGHT) {
+        if (this.y + this.radius >= VIRTUAL_HEIGHT) {
           if (
             paddle &&
             this.x >= paddle.x &&
             this.x <= paddle.x + paddle.width
           ) {
             this.vy *= -1;
-            this.y = HEIGHT - this.radius - paddle.height;
+            this.y = VIRTUAL_HEIGHT - this.radius - paddle.height;
           } else {
             this.active = false;
             lives--;
-            console.log("Ball missed paddle → lives =", lives);
             if (lives <= 0) {
               endGame(false);
             }
@@ -229,12 +253,9 @@
             } else {
               this.vx *= -1;
             }
-            score += 100 * (brick.initialHP); 
-            // You can award points differently; here we give 100×initial HP for each hit.
-            console.log("Hit brick → score =", score);
+            score += 100 * brick.initialHP;
           }
         });
-        // Remove bricks with hp ≤ 0
         bricks = bricks.filter((b) => b.hp > 0);
 
         // Portal A collision (one‐way)
@@ -252,9 +273,7 @@
           endGame(true);
         }
       }
-
       teleportToPortalB() {
-        console.log("Ball entered Portal A → teleport to Portal B");
         const angle = portalB.exitAngle;
         const speedBoost = 150;
         const offset = this.radius + 2;
@@ -273,7 +292,6 @@
           this.justTeleported = false;
         }, 150);
       }
-
       draw(ctx) {
         if (!this.active) return;
         ctx.beginPath();
@@ -283,13 +301,13 @@
       }
     }
 
-    // 3.2 Paddle Class
+    // 3.2 Paddle
     class Paddle {
       constructor() {
         this.width = 100;
         this.height = 10;
-        this.x = (WIDTH - this.width) / 2;
-        this.y = HEIGHT - this.height;
+        this.x = (VIRTUAL_WIDTH - this.width) / 2;
+        this.y = VIRTUAL_HEIGHT - this.height;
       }
       draw(ctx) {
         ctx.fillStyle = "#8e44ad";
@@ -297,17 +315,16 @@
       }
     }
 
-    // 3.3 Brick Class (random HP 1–10)
+    // 3.3 Brick (random HP 1–10)
     class Brick {
       constructor(x, y) {
         this.x = x;
         this.y = y;
-        this.initialHP = Math.floor(Math.random() * 10) + 1; // 1–10
+        this.initialHP = Math.floor(Math.random() * 10) + 1; 
         this.hp = this.initialHP;
         this.width = BRICK_WIDTH;
         this.height = BRICK_HEIGHT;
       }
-
       collidesWith(ball) {
         const distX = Math.abs(ball.x - (this.x + this.width / 2));
         const distY = Math.abs(ball.y - (this.y + this.height / 2));
@@ -319,23 +336,18 @@
         }
         return true;
       }
-
       onHit() {
         this.hp--;
-        console.log("Brick HP →", this.hp);
       }
-
       draw(ctx) {
-        // Fill brick in red
+        // Red fill
         ctx.fillStyle = "#e74c3c";
         ctx.fillRect(this.x, this.y, this.width, this.height);
-
-        // Draw black border
+        // Black border
         ctx.strokeStyle = "#000";
         ctx.lineWidth = 1;
         ctx.strokeRect(this.x, this.y, this.width, this.height);
-
-        // Draw hit‐count in white at center
+        // HP text
         ctx.fillStyle = "#fff";
         ctx.font = "16px sans-serif";
         ctx.textAlign = "center";
@@ -347,7 +359,7 @@
       }
     }
 
-    // 3.4 Portal Class
+    // 3.4 Portal
     class Portal {
       constructor(x, y, type) {
         this.x = Math.floor(x / 10) * 10;
@@ -356,12 +368,11 @@
         this.height = BRICK_HEIGHT;
         this.type = type; // "A" or "B"
         if (type === "B") {
-          this.exitAngle = -Math.PI / 2; // default up
+          this.exitAngle = -Math.PI / 2; // default straight up
         } else {
           this.exitAngle = null;
         }
       }
-
       collidesWith(ball) {
         return (
           ball.x >= this.x &&
@@ -370,32 +381,29 @@
           ball.y <= this.y + this.height
         );
       }
-
       draw(ctx) {
         if (this.type === "A") {
-          ctx.fillStyle = "#0064ff"; // blue entry
+          ctx.fillStyle = "#0064ff"; // blue
         } else {
-          ctx.fillStyle = "#ff6400"; // orange exit
+          ctx.fillStyle = "#ff6400"; // orange
         }
         ctx.globalAlpha = 0.5;
         ctx.fillRect(this.x, this.y, this.width, this.height);
         ctx.globalAlpha = 1;
-
-        // Draw arrow on exit portal
         if (this.type === "B") {
           const cx = this.x + this.width / 2;
           const cy = this.y + this.height / 2;
           const len = this.width / 2 - 4;
           const ax = cx + Math.cos(this.exitAngle) * len;
           const ay = cy + Math.sin(this.exitAngle) * len;
-
+          // Arrow body
           ctx.strokeStyle = "#fff";
           ctx.lineWidth = 3;
           ctx.beginPath();
           ctx.moveTo(cx, cy);
           ctx.lineTo(ax, ay);
           ctx.stroke();
-
+          // Arrowhead
           ctx.fillStyle = "#fff";
           ctx.beginPath();
           const arrowSize = 6;
@@ -417,11 +425,11 @@
       }
     }
 
-    // 3.5 Cannon Class
+    // 3.5 Cannon
     class Cannon {
       constructor() {
-        this.x = WIDTH / 2;
-        this.y = HEIGHT - 30;
+        this.x = VIRTUAL_WIDTH / 2;
+        this.y = VIRTUAL_HEIGHT - 30;
         this.angle = -Math.PI / 2;
       }
       aim(pointerX) {
@@ -434,14 +442,12 @@
       draw(ctx) {
         ctx.fillStyle = "#7f8c8d";
         ctx.fillRect(this.x - 20, this.y, 40, 20);
-
         ctx.save();
         ctx.translate(this.x, this.y);
         ctx.rotate(this.angle);
         ctx.fillStyle = "#34495e";
         ctx.fillRect(0, -5, 40, 10);
         ctx.restore();
-
         ctx.strokeStyle = "rgba(0,0,0,0.3)";
         ctx.setLineDash([5, 5]);
         ctx.beginPath();
@@ -454,12 +460,10 @@
       }
     }
 
-    // =========================
-    // 4. Helper Functions
-    // =========================
+    // ======= 4. Helpers =======
 
-    // Place Portal A or B if clicking outside bricks
-    function placePortal(x, y) {
+    // Place Portal A or B when portalPlacementActive
+    function placePortalAnytime(x, y) {
       // Don’t place on a brick
       for (const b of bricks) {
         if (
@@ -468,27 +472,23 @@
           y >= b.y &&
           y <= b.y + b.height
         ) {
-          return;
+          return false;
         }
       }
-      if (!portalA) {
+      if (nextPortalType === "A") {
         portalA = new Portal(x - BRICK_WIDTH / 2, y - BRICK_HEIGHT / 2, "A");
-        console.log("PLACED Portal A at", portalA.x, portalA.y);
-      } else if (!portalB) {
+        nextPortalType = "B";
+        placePortalsBtn.textContent = "Place Portal B";
+      } else {
         portalB = new Portal(x - BRICK_WIDTH / 2, y - BRICK_HEIGHT / 2, "B");
-        console.log(
-          "PLACED Portal B at",
-          portalB.x,
-          portalB.y,
-          "exitAngle=",
-          portalB.exitAngle.toFixed(2)
-        );
         allowFiring = true;
-        gameState = "playing";
+        portalPlacementActive = false;
+        placePortalsBtn.textContent = "Place Portals";
       }
+      return true;
     }
 
-    // Fire three balls at once (spread ±0.1 rad)
+    // Fire three balls (spread ±0.1 rad)
     function fireBalls() {
       const baseAngle = cannon.angle;
       const speed = 300;
@@ -499,18 +499,11 @@
         const vy = Math.sin(ang) * speed;
         const spawnX = cannon.x + Math.cos(baseAngle) * 40;
         const spawnY = cannon.y + Math.sin(baseAngle) * 40;
-        console.log(
-          "FIRED ball (dθ=",
-          dθ.toFixed(2),
-          ") vx,vy=",
-          vx.toFixed(2),
-          vy.toFixed(2)
-        );
         return new Ball(spawnX, spawnY, vx, vy);
       });
     }
 
-    // Build brick layout with random HP 1–10
+    // Setup bricks with random HP 1–10
     function setupBricks() {
       bricks = [];
       for (let row = 0; row < 3; row++) {
@@ -522,18 +515,16 @@
       }
     }
 
-    // End the game: show “You Win!” or “Game Over”
+    // End the game
     function endGame(win) {
       gameState = "gameover";
-      canvas.classList.add("hidden");
+      canvas.style.pointerEvents = "none"; // disable canvas interaction
       document.getElementById("gameOverScreen").classList.remove("hidden");
       document.getElementById("gameOverText").textContent = win ? "You Win!" : "Game Over";
       document.getElementById("finalScore").textContent = "Score: " + score;
     }
 
-    // =========================
-    // 5. Initialization & Main Loop
-    // =========================
+    // ======= 5. Initialization & Main Loop =======
 
     function initGame() {
       score = 0;
@@ -541,17 +532,19 @@
       portalA = null;
       portalB = null;
       allowFiring = false;
+      portalPlacementActive = false;
+      nextPortalType = "A";
+      placePortalsBtn.textContent = "Place Portals";
+
       setupBricks();
       cannon = new Cannon();
       paddle = new Paddle();
       balls = [];
-      gameState = "placingPortals";
+      gameState = "playing";
 
-      document.getElementById("menuScreen").classList.add("hidden");
+      canvas.style.pointerEvents = "auto";
       document.getElementById("gameOverScreen").classList.add("hidden");
-      canvas.classList.remove("hidden");
-
-      draw(); // draw immediately so you see bricks+cannon right away
+      draw(); // initial draw
     }
 
     let lastTime = 0;
@@ -564,204 +557,172 @@
         balls = balls.filter((b) => b.active);
       }
 
-      draw(); // always redraw each frame
+      draw();
       requestAnimationFrame(gameLoop);
     }
 
-    // Draw all game elements
+    // Draw everything in virtual coordinates
     function draw() {
-      ctx.clearRect(0, 0, WIDTH, HEIGHT);
+      ctx.clearRect(0, 0, VIRTUAL_WIDTH, VIRTUAL_HEIGHT);
 
-      // Draw bricks
+      // Bricks
       bricks.forEach((b) => b.draw(ctx));
-
-      // Draw portals if placed
+      // Portals
       if (portalA) portalA.draw(ctx);
       if (portalB) portalB.draw(ctx);
-
-      // Draw cannon & paddle
+      // Cannon & paddle
       cannon.draw(ctx);
       paddle.draw(ctx);
-
-      // Draw balls
+      // Balls
       balls.forEach((b) => b.draw(ctx));
-
-      // Draw HUD: score & lives
+      // HUD
       ctx.fillStyle = "#000";
       ctx.font = "18px sans-serif";
       ctx.fillText("Score: " + score, 10, 20);
-      ctx.fillText("Lives: " + lives, 350, 20);
+      ctx.fillText("Lives: " + lives, VIRTUAL_WIDTH - 80, 20);
     }
 
-    // Utility to get X & Y from event
-    function getPointerX(e) {
+    // ======= 6. Input Handling (Pointer Events) =======
+    // We must convert CSS‐scaled pointer coordinates into virtual 480×640 coords.
+
+    // Utility: map CSS pointer event → virtual coordinates
+    function getVirtualPointer(e) {
       const rect = canvas.getBoundingClientRect();
-      if (e.touches && e.touches[0]) return e.touches[0].clientX - rect.left;
-      else return e.clientX - rect.left;
+      // pointer’s CSS‐pixel position relative to canvas top‐left:
+      let cssX, cssY;
+      if (e.touches && e.touches[0]) {
+        cssX = e.touches[0].clientX - rect.left;
+        cssY = e.touches[0].clientY - rect.top;
+      } else {
+        cssX = e.clientX - rect.left;
+        cssY = e.clientY - rect.top;
+      }
+      // scale factors
+      const scaleX = VIRTUAL_WIDTH / rect.width;
+      const scaleY = VIRTUAL_HEIGHT / rect.height;
+      return {
+        x: cssX * scaleX,
+        y: cssY * scaleY
+      };
     }
-    function getPointerY(e) {
-      const rect = canvas.getBoundingClientRect();
-      if (e.touches && e.touches[0]) return e.touches[0].clientY - rect.top;
-      else return e.clientY - rect.top;
-    }
 
-    // =========================
-    // 6. Pointer (Mouse/Touch) Handlers
-    // =========================
+    // pointerdown: place portals or start rotating B
+    canvas.addEventListener("pointerdown", (e) => {
+      const { x, y } = getVirtualPointer(e);
+      if (gameState !== "playing") return;
 
-    // 6.1 pointerdown
-    canvas.addEventListener(
-      "pointerdown",
-      (e) => {
-        const x = getPointerX(e);
-        const y = getPointerY(e);
-        console.log("pointerdown at", x.toFixed(2), y.toFixed(2), "state=", gameState);
-
-        if (gameState === "placingPortals") {
-          // If inside Portal B, begin rotating
-          if (
-            portalB &&
-            x >= portalB.x &&
-            x <= portalB.x + portalB.width &&
-            y >= portalB.y &&
-            y <= portalB.y + portalB.height
-          ) {
-            isRotatingB = true;
-            setPortalBAngleFromPointer(x, y);
-            return;
-          }
-          // Otherwise, place Portal A or B
-          placePortal(x, y);
-        } else if (gameState === "playing") {
-          // If inside Portal B, begin rotating
-          if (
-            portalB &&
-            x >= portalB.x &&
-            x <= portalB.x + portalB.width &&
-            y >= portalB.y &&
-            y <= portalB.y + portalB.height
-          ) {
-            isRotatingB = true;
-            setPortalBAngleFromPointer(x, y);
-            return;
-          }
-          // Else: do nothing on pointerdown; firing will happen on pointerup if outside B
-        }
-      },
-      false
-    );
-
-    // 6.2 pointermove
-    canvas.addEventListener(
-      "pointermove",
-      (e) => {
-        if (isRotatingB && portalB) {
-          const x = getPointerX(e);
-          const y = getPointerY(e);
-          setPortalBAngleFromPointer(x, y);
-        } else if (gameState === "placingPortals" || gameState === "playing") {
-          const x = getPointerX(e);
-          cannon.aim(x);
-          paddle.x = x - paddle.width / 2;
-        }
-      },
-      false
-    );
-
-    // 6.3 pointerup
-    canvas.addEventListener(
-      "pointerup",
-      (e) => {
-        const x = getPointerX(e);
-        const y = getPointerY(e);
-        console.log("pointerup at", x.toFixed(2), y.toFixed(2), "state=", gameState);
-
-        if (isRotatingB) {
-          isRotatingB = false;
+      // If in portal‐placement mode, try to place A or B
+      if (portalPlacementActive) {
+        if (placePortalAnytime(x, y)) {
           return;
         }
+        // If clicked on a brick during placement mode, ignore
+        return;
+      }
 
-        if (gameState === "playing" && allowFiring) {
-          // Check if pointerup is outside bricks and outside Portal B
-          let insideBrick = false;
-          for (const b of bricks) {
-            if (
-              x >= b.x &&
-              x <= b.x + b.width &&
-              y >= b.y &&
-              y <= b.y + b.height
-            ) {
-              insideBrick = true;
-              break;
-            }
-          }
-          let insideB = false;
+      // If click is inside Portal B, start rotating
+      if (
+        portalB &&
+        x >= portalB.x &&
+        x <= portalB.x + portalB.width &&
+        y >= portalB.y &&
+        y <= portalB.y + portalB.height
+      ) {
+        isRotatingB = true;
+        setPortalBAngleFromPointer(x, y);
+        return;
+      }
+
+      // Otherwise, do nothing here (firing happens on pointerup)
+    });
+
+    // pointermove: rotate Portal B or aim cannon/paddle
+    canvas.addEventListener("pointermove", (e) => {
+      const { x, y } = getVirtualPointer(e);
+      if (gameState !== "playing") return;
+
+      if (isRotatingB && portalB) {
+        setPortalBAngleFromPointer(x, y);
+      } else {
+        // Aim cannon & move paddle
+        cannon.aim(x);
+        paddle.x = x - paddle.width / 2;
+      }
+    });
+
+    // pointerup: stop rotating or fire balls
+    canvas.addEventListener("pointerup", (e) => {
+      const { x, y } = getVirtualPointer(e);
+      if (gameState !== "playing") return;
+
+      if (isRotatingB) {
+        isRotatingB = false;
+        return;
+      }
+      if (portalPlacementActive) {
+        // We ignore pointerup if we’re in placement mode
+        return;
+      }
+      // If playing & allowed to fire, and pointerup outside bricks & outside Portal B
+      if (allowFiring) {
+        let insideBrick = false;
+        for (const b of bricks) {
           if (
-            portalB &&
-            x >= portalB.x &&
-            x <= portalB.x + portalB.width &&
-            y >= portalB.y &&
-            y <= portalB.y + portalB.height
+            x >= b.x &&
+            x <= b.x + b.width &&
+            y >= b.y &&
+            y <= b.y + b.height
           ) {
-            insideB = true;
-          }
-          if (!insideBrick && !insideB) {
-            fireBalls();
+            insideBrick = true;
+            break;
           }
         }
-      },
-      false
-    );
+        let insideB = false;
+        if (
+          portalB &&
+          x >= portalB.x &&
+          x <= portalB.x + portalB.width &&
+          y >= portalB.y &&
+          y <= portalB.y + portalB.height
+        ) {
+          insideB = true;
+        }
+        if (!insideBrick && !insideB) {
+          fireBalls();
+        }
+      }
+    });
 
-    // Compute portalB.exitAngle from pointer coords
+    // Compute exitAngle for Portal B from pointer
     function setPortalBAngleFromPointer(px, py) {
       if (!portalB) return;
       const cx = portalB.x + portalB.width / 2;
       const cy = portalB.y + portalB.height / 2;
       portalB.exitAngle = Math.atan2(py - cy, px - cx);
-      console.log("Portal B exitAngle =", portalB.exitAngle.toFixed(2));
     }
 
-    // =========================
-    // 7. UI Button Handlers
-    // =========================
-
-    document.getElementById("playBtn").addEventListener("click", () => {
-      initGame();
+    // ======= 7. “Place Portals” Button Handling =======
+    const placePortalsBtn = document.getElementById("placePortalsBtn");
+    placePortalsBtn.addEventListener("click", () => {
+      if (portalPlacementActive) return;
+      portalPlacementActive = true;
+      nextPortalType = "A";
+      placePortalsBtn.textContent = "Place Portal A";
     });
+
+    // ======= 8. Overlay Button Handlers =======
     document.getElementById("restartBtn").addEventListener("click", () => {
       initGame();
-    });
-    document.getElementById("menuBtn").addEventListener("click", () => {
-      gameState = "menu";
-      document.getElementById("gameOverScreen").classList.add("hidden");
-      document.getElementById("menuScreen").classList.remove("hidden");
     });
     document.querySelectorAll(".backBtn").forEach((btn) => {
       btn.addEventListener("click", () => {
         document.getElementById("howToScreen").classList.add("hidden");
         document.getElementById("settingsScreen").classList.add("hidden");
         document.getElementById("creditsScreen").classList.add("hidden");
-        document.getElementById("menuScreen").classList.remove("hidden");
       });
     });
-    document.getElementById("howToBtn").addEventListener("click", () => {
-      document.getElementById("menuScreen").classList.add("hidden");
-      document.getElementById("howToScreen").classList.remove("hidden");
-    });
-    document.getElementById("settingsBtn").addEventListener("click", () => {
-      document.getElementById("menuScreen").classList.add("hidden");
-      document.getElementById("settingsScreen").classList.remove("hidden");
-    });
-    document.getElementById("creditsBtn").addEventListener("click", () => {
-      document.getElementById("menuScreen").classList.add("hidden");
-      document.getElementById("creditsScreen").classList.remove("hidden");
-    });
 
-    // =========================
-    // 8. Start the Game
-    // =========================
-
+    // ======= 9. Start Everything =======
     initGame();
     lastTime = performance.now();
     requestAnimationFrame(gameLoop);
