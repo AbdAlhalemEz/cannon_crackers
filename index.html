@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Portal Breaker – Responsive (Any Screen Size)</title>
+  <title>Portal Breaker – Full‐Screen Responsive & Corrected Firing</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
   <!-- ===== Embedded CSS ===== -->
@@ -42,23 +42,18 @@
       transform: scale(1.0);
     }
 
-    /* ==== Canvas Styling: scale to fit while preserving aspect ratio ==== */
+    /* ==== Canvas Styling: fill entire viewport ==== */
     #canvasContainer {
       position: relative;
-      width: 100%;
-      height: 100%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
+      width: 100vw;
+      height: 100vh;
       background: #000;
       overflow: hidden;
     }
-    /* The virtual game is 480×640, so we let CSS scale that to fit */
     #gameCanvas {
-      width: 100%;
-      height: 100%;
-      max-width: 480px;
-      max-height: 640px;
+      /* Stretch to exactly fill viewport, even if aspect differs */
+      width: 100vw;
+      height: 100vh;
       background: #f0f0f0;
       image-rendering: pixelated; /* optional for crisp look */
     }
@@ -116,7 +111,7 @@
   <!-- Place‐Portals Button -->
   <button id="placePortalsBtn">Place Portals</button>
 
-  <!-- Container to center and scale the canvas -->
+  <!-- Container to center and fill the canvas -->
   <div id="canvasContainer">
     <canvas id="gameCanvas" width="480" height="640"></canvas>
   </div>
@@ -132,12 +127,11 @@
   <div id="howToScreen" class="overlay hidden">
     <h2>How to Play</h2>
     <p>
-      1. Click “Place Portals” any time to enter portal‐placement mode.<br />
-      2. Click twice (anywhere off bricks) to place Portal A (blue) and Portal B (orange).<br />
-      3. To set Portal B’s exit angle, click‐and‐drag inside Portal B and release when oriented as you like.<br />
-      4. Click outside portals/bricks to fire three balls at once (one straight, ±0.1 rad).<br />
-      Balls that hit Portal A teleport to Portal B’s center and emerge at the chosen angle.<br />
-      5. Break all bricks to win; miss the paddle 3 times to lose.
+      1. Tap “Place Portals” any time to begin placing.<br />
+      2. Tap twice off‐brick to place Portal A (blue) then Portal B (orange).<br />
+      3. Tap‐and‐drag inside Portal B to rotate its exit arrow; release to lock.<br />
+      4. To fire, tap anywhere <strong>outside</strong> portal placement/rotation.<br />
+      5. Break all bricks to win; missing the paddle 3 times → lose.
     </p>
     <button class="backBtn">Back</button>
   </div>
@@ -159,7 +153,7 @@
   <!-- ======= Embedded JavaScript ======= -->
   <script>
     // =========================
-    // Portal Breaker – Responsive (480×640 virtual)
+    // Portal Breaker – Full‐Screen Responsive & Corrected Firing
     // =========================
 
     // ======= 1. Canvas & Scaling Setup =======
@@ -193,9 +187,12 @@
     // Rotating Portal B
     let isRotatingB = false;
 
+    // Skip firing flag (to prevent immediate fire after placing portals)
+    let skipNextFire = false;
+
     // ======= 3. Game Object Classes =======
 
-    // 3.1 Ball (virtual coords & velocity)
+    // 3.1 Ball
     class Ball {
       constructor(x, y, vx, vy) {
         this.x = x;
@@ -485,6 +482,8 @@
         portalPlacementActive = false;
         placePortalsBtn.textContent = "Place Portals";
       }
+      // After placement, skip the next pointerup‐firing
+      skipNextFire = true;
       return true;
     }
 
@@ -534,6 +533,7 @@
       allowFiring = false;
       portalPlacementActive = false;
       nextPortalType = "A";
+      skipNextFire = false;
       placePortalsBtn.textContent = "Place Portals";
 
       setupBricks();
@@ -583,12 +583,10 @@
     }
 
     // ======= 6. Input Handling (Pointer Events) =======
-    // We must convert CSS‐scaled pointer coordinates into virtual 480×640 coords.
+    // Convert CSS‐stretched pointer coordinates into virtual 480×640 coords.
 
-    // Utility: map CSS pointer event → virtual coordinates
     function getVirtualPointer(e) {
       const rect = canvas.getBoundingClientRect();
-      // pointer’s CSS‐pixel position relative to canvas top‐left:
       let cssX, cssY;
       if (e.touches && e.touches[0]) {
         cssX = e.touches[0].clientX - rect.left;
@@ -597,7 +595,6 @@
         cssX = e.clientX - rect.left;
         cssY = e.clientY - rect.top;
       }
-      // scale factors
       const scaleX = VIRTUAL_WIDTH / rect.width;
       const scaleY = VIRTUAL_HEIGHT / rect.height;
       return {
@@ -608,19 +605,18 @@
 
     // pointerdown: place portals or start rotating B
     canvas.addEventListener("pointerdown", (e) => {
-      const { x, y } = getVirtualPointer(e);
       if (gameState !== "playing") return;
+      const { x, y } = getVirtualPointer(e);
 
-      // If in portal‐placement mode, try to place A or B
+      // If in portal‐placement mode, place A or B
       if (portalPlacementActive) {
         if (placePortalAnytime(x, y)) {
           return;
         }
-        // If clicked on a brick during placement mode, ignore
         return;
       }
 
-      // If click is inside Portal B, start rotating
+      // If click inside Portal B, start rotating
       if (
         portalB &&
         x >= portalB.x &&
@@ -632,14 +628,13 @@
         setPortalBAngleFromPointer(x, y);
         return;
       }
-
-      // Otherwise, do nothing here (firing happens on pointerup)
+      // Otherwise do nothing here
     });
 
     // pointermove: rotate Portal B or aim cannon/paddle
     canvas.addEventListener("pointermove", (e) => {
-      const { x, y } = getVirtualPointer(e);
       if (gameState !== "playing") return;
+      const { x, y } = getVirtualPointer(e);
 
       if (isRotatingB && portalB) {
         setPortalBAngleFromPointer(x, y);
@@ -650,50 +645,53 @@
       }
     });
 
-    // pointerup: stop rotating or fire balls
+    // pointerup: stop rotating, skip if just placed portal, or fire balls
     canvas.addEventListener("pointerup", (e) => {
-      const { x, y } = getVirtualPointer(e);
       if (gameState !== "playing") return;
+      const { x, y } = getVirtualPointer(e);
 
       if (isRotatingB) {
         isRotatingB = false;
         return;
       }
-      if (portalPlacementActive) {
-        // We ignore pointerup if we’re in placement mode
+      if (skipNextFire) {
+        skipNextFire = false;
         return;
       }
-      // If playing & allowed to fire, and pointerup outside bricks & outside Portal B
-      if (allowFiring) {
-        let insideBrick = false;
-        for (const b of bricks) {
-          if (
-            x >= b.x &&
-            x <= b.x + b.width &&
-            y >= b.y &&
-            y <= b.y + b.height
-          ) {
-            insideBrick = true;
-            break;
-          }
-        }
-        let insideB = false;
+      if (portalPlacementActive) {
+        return;
+      }
+
+      // Fire whenever pointerup happens (since we no longer restrict to bottom region)
+      // as long as it wasn’t on a brick or Portal B
+      let insideBrick = false;
+      for (const b of bricks) {
         if (
-          portalB &&
-          x >= portalB.x &&
-          x <= portalB.x + portalB.width &&
-          y >= portalB.y &&
-          y <= portalB.y + portalB.height
+          x >= b.x &&
+          x <= b.x + b.width &&
+          y >= b.y &&
+          y <= b.y + b.height
         ) {
-          insideB = true;
+          insideBrick = true;
+          break;
         }
-        if (!insideBrick && !insideB) {
-          fireBalls();
-        }
+      }
+      let insideB = false;
+      if (
+        portalB &&
+        x >= portalB.x &&
+        x <= portalB.x + portalB.width &&
+        y >= portalB.y &&
+        y <= portalB.y + portalB.height
+      ) {
+        insideB = true;
+      }
+      if (allowFiring && !insideBrick && !insideB) {
+        fireBalls();
       }
     });
 
-    // Compute exitAngle for Portal B from pointer
+    // Compute exitAngle for Portal B from pointer coords
     function setPortalBAngleFromPointer(px, py) {
       if (!portalB) return;
       const cx = portalB.x + portalB.width / 2;
