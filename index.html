@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Portal Breaker – Full‐Screen Responsive & Corrected Firing</title>
+  <title>Portal Breaker – Fully Fit Responsive</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
   <!-- ===== Embedded CSS ===== -->
@@ -42,20 +42,26 @@
       transform: scale(1.0);
     }
 
-    /* ==== Canvas Styling: fill entire viewport ==== */
+    /* ==== Canvas Container: fill viewport ==== */
     #canvasContainer {
       position: relative;
       width: 100vw;
       height: 100vh;
       background: #000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
       overflow: hidden;
     }
+
+    /* ==== Canvas itself: scale down as needed, never overflow ==== */
     #gameCanvas {
-      /* Stretch to exactly fill viewport, even if aspect differs */
-      width: 100vw;
-      height: 100vh;
+      /* The canvas’s “intrinsic” size is 480×640, but CSS will scale it.
+         By using max‐width/height, we let it shrink to fit the screen but never overflow. */
+      max-width: 100%;
+      max-height: 100%;
       background: #f0f0f0;
-      image-rendering: pixelated; /* optional for crisp look */
+      image-rendering: pixelated; /* optional crisp look */
     }
 
     /* ==== Overlays (Game Over, How‐to, etc.) ==== */
@@ -111,7 +117,7 @@
   <!-- Place‐Portals Button -->
   <button id="placePortalsBtn">Place Portals</button>
 
-  <!-- Container to center and fill the canvas -->
+  <!-- Container to center and fit the canvas within the viewport -->
   <div id="canvasContainer">
     <canvas id="gameCanvas" width="480" height="640"></canvas>
   </div>
@@ -127,11 +133,11 @@
   <div id="howToScreen" class="overlay hidden">
     <h2>How to Play</h2>
     <p>
-      1. Tap “Place Portals” any time to begin placing.<br />
+      1. Tap “Place Portals” any time to enter portal‐placement mode.<br />
       2. Tap twice off‐brick to place Portal A (blue) then Portal B (orange).<br />
       3. Tap‐and‐drag inside Portal B to rotate its exit arrow; release to lock.<br />
-      4. To fire, tap anywhere <strong>outside</strong> portal placement/rotation.<br />
-      5. Break all bricks to win; missing the paddle 3 times → lose.
+      4. To fire, tap anywhere outside portal placement/rotation.<br />
+      5. Break all bricks to win; miss the paddle 3 times to lose.
     </p>
     <button class="backBtn">Back</button>
   </div>
@@ -153,7 +159,7 @@
   <!-- ======= Embedded JavaScript ======= -->
   <script>
     // =========================
-    // Portal Breaker – Full‐Screen Responsive & Corrected Firing
+    // Portal Breaker – Fit‐to‐Screen Responsive & Corrected Firing
     // =========================
 
     // ======= 1. Canvas & Scaling Setup =======
@@ -610,9 +616,7 @@
 
       // If in portal‐placement mode, place A or B
       if (portalPlacementActive) {
-        if (placePortalAnytime(x, y)) {
-          return;
-        }
+        placePortalAnytime(x, y);
         return;
       }
 
