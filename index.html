@@ -115,15 +115,15 @@
     let balls = [];
 
     let portalPlacementActive = false;
-    let nextPortalType = "A";
-    let skipNextFire = false;
+    let nextPortalType = "A";  // "A" first, then "B"
+    let skipNextFire = false;  // skip one tap right after placing a portal
 
-    // Drag/Rotate for portals
-    let draggingPortal = null;      // "A" or "B"
-    let needToRotateB = false;
-    let justPlacedB = false;
+    // Drag/Rotate state for portals:
+    let draggingPortal = null;      // "A" or "B" or null
+    let needToRotateB = false;      // true when exit angle must be set/finalized
+    let justPlacedB = false;        // ignore the very next pointerup after placement
 
-    // Paddle drag
+    // Paddle drag state:
     let draggingPaddle = false;
     let lastPointerX = 0;
 
@@ -134,19 +134,32 @@
     const BRICK_HEIGHT = 20;
     const BRICK_MARGIN = 5;
 
-    // Rows and speed
+    // Number of rows currently in play (starts at 4)
     let currentRowCount = 4;
+
+    // Special types array (including multiball)
     const specialTypes = [
-      "extra","cursed","speedup","slowdown","sticky",
-      "teleport","invisible","bomb","double","multiball"
+      "extra",
+      "cursed",
+      "speedup",
+      "slowdown",
+      "sticky",
+      "teleport",
+      "invisible",
+      "bomb",
+      "double",
+      "multiball"
     ];
+
+    // Interval sequence: 60s, 50s, 40s, then 30s
     const rowIntervals = [60000, 50000, 40000];
     let nextIntervalIndex = 0;
     let scheduledRowTimeout = null;
 
+    // Ball base speed, increases with each new row
     let ballBaseSpeed = 500;
 
-    // ======= Helpers =======
+    // ======= Helper for Rounded Rectangles =======
     function drawRoundedRect(ctx, x, y, w, h, r) {
       ctx.beginPath();
       ctx.moveTo(x + r, y);
@@ -374,7 +387,6 @@
           }
         }
 
-        // Remove destroyed bricks
         bricks = bricks.filter(b => {
           if (b.isExtra || b.isCursed || b.isSpeedUp ||
               b.isSlowDown || b.isSticky || b.isTeleport ||
@@ -385,7 +397,6 @@
           return b.hp > 0;
         });
 
-        // If only 3 bricks left, add a new row immediately
         if (bricks.length <= 3) {
           addNewRow();
         }
@@ -443,8 +454,7 @@
 
     class Brick {
       constructor(x, y, type = "normal", maxHP = 4) {
-        this.x = x;
-        this.y = y;
+        this.x = x; this.y = y;
         this.isExtra    = (type === "extra");
         this.isCursed   = (type === "cursed");
         this.isSpeedUp  = (type === "speedup");
@@ -470,26 +480,20 @@
         }
 
         this.hp = this.initialHP;
-        this.width = BRICK_WIDTH;
-        this.height = BRICK_HEIGHT;
+        this.width = BRICK_WIDTH; this.height = BRICK_HEIGHT;
         this.collected = false;
       }
 
       collidesWith(ball) {
         const distX = Math.abs(ball.x - (this.x + this.width / 2));
         const distY = Math.abs(ball.y - (this.y + this.height / 2));
-        return !(
-          distX > this.width / 2 + ball.radius ||
-          distY > this.height / 2 + ball.radius
-        );
+        return !(distX > this.width/2 + ball.radius || distY > this.height/2 + ball.radius);
       }
 
       onHit() {
-        if (
-          !this.isExtra && !this.isCursed && !this.isSpeedUp &&
-          !this.isSlowDown && !this.isSticky && !this.isTeleport &&
-          !this.isInvisible && !this.isBomb && !this.isDouble && !this.isMultiBall
-        ) {
+        if (!this.isExtra && !this.isCursed && !this.isSpeedUp &&
+            !this.isSlowDown && !this.isSticky && !this.isTeleport &&
+            !this.isInvisible && !this.isBomb && !this.isDouble && !this.isMultiBall) {
           this.hp--;
         }
       }
@@ -497,104 +501,82 @@
       draw(ctx) {
         ctx.lineWidth = 1;
         if (this.isCursed) {
-          ctx.fillStyle = "#8e44ad";
-          ctx.strokeStyle = "#000";
+          ctx.fillStyle = "#8e44ad"; ctx.strokeStyle = "#000";
           drawRoundedRect(ctx, this.x, this.y, this.width, this.height, 4);
-          ctx.fillStyle = "#fff";
-          ctx.font = "20px sans-serif";
+          ctx.fillStyle = "#fff"; ctx.font = "20px sans-serif";
           ctx.textAlign = "center"; ctx.textBaseline = "middle";
           ctx.fillText("!", this.x + this.width/2, this.y + this.height/2);
         }
         else if (this.isSpeedUp) {
-          ctx.fillStyle = "#f1c40f";
-          ctx.strokeStyle = "#000";
+          ctx.fillStyle = "#f1c40f"; ctx.strokeStyle = "#000";
           drawRoundedRect(ctx, this.x, this.y, this.width, this.height, 4);
-          ctx.fillStyle = "#000";
-          ctx.font = "20px sans-serif";
+          ctx.fillStyle = "#000"; ctx.font = "20px sans-serif";
           ctx.textAlign = "center"; ctx.textBaseline = "middle";
           ctx.fillText("⚡", this.x + this.width/2, this.y + this.height/2);
         }
         else if (this.isSlowDown) {
-          ctx.fillStyle = "#3498db";
-          ctx.strokeStyle = "#000";
+          ctx.fillStyle = "#3498db"; ctx.strokeStyle = "#000";
           drawRoundedRect(ctx, this.x, this.y, this.width, this.height, 4);
-          ctx.fillStyle = "#fff";
-          ctx.font = "20px sans-serif";
+          ctx.fillStyle = "#fff"; ctx.font = "20px sans-serif";
           ctx.textAlign = "center"; ctx.textBaseline = "middle";
           ctx.fillText("🐢", this.x + this.width/2, this.y + this.height/2);
         }
         else if (this.isSticky) {
-          ctx.fillStyle = "#27ae60";
-          ctx.strokeStyle = "#000";
+          ctx.fillStyle = "#27ae60"; ctx.strokeStyle = "#000";
           drawRoundedRect(ctx, this.x, this.y, this.width, this.height, 4);
-          ctx.fillStyle = "#fff";
-          ctx.font = "20px sans-serif";
+          ctx.fillStyle = "#fff"; ctx.font = "20px sans-serif";
           ctx.textAlign = "center"; ctx.textBaseline = "middle";
           ctx.fillText("🕳️", this.x + this.width/2, this.y + this.height/2);
         }
         else if (this.isTeleport) {
-          ctx.fillStyle = "#1abc9c";
-          ctx.strokeStyle = "#000";
+          ctx.fillStyle = "#1abc9c"; ctx.strokeStyle = "#000";
           drawRoundedRect(ctx, this.x, this.y, this.width, this.height, 4);
-          ctx.fillStyle = "#000";
-          ctx.font = "20px sans-serif";
+          ctx.fillStyle = "#000"; ctx.font = "20px sans-serif";
           ctx.textAlign = "center"; ctx.textBaseline = "middle";
           ctx.fillText("🔀", this.x + this.width/2, this.y + this.height/2);
         }
         else if (this.isInvisible) {
           if (!this.hasBeenHitOnce) {
-            ctx.fillStyle = "#bdc3c7";
-            ctx.strokeStyle = "#000";
+            ctx.fillStyle = "#bdc3c7"; ctx.strokeStyle = "#000";
             drawRoundedRect(ctx, this.x, this.y, this.width, this.height, 4);
           }
         }
         else if (this.isExtra) {
-          ctx.fillStyle = "#2ecc71";
-          ctx.strokeStyle = "#000";
+          ctx.fillStyle = "#2ecc71"; ctx.strokeStyle = "#000";
           drawRoundedRect(ctx, this.x, this.y, this.width, this.height, 4);
-          ctx.fillStyle = "#fff";
-          ctx.font = "20px sans-serif";
+          ctx.fillStyle = "#fff"; ctx.font = "20px sans-serif";
           ctx.textAlign = "center"; ctx.textBaseline = "middle";
           ctx.fillText("★", this.x + this.width/2, this.y + this.height/2);
         }
         else if (this.isBomb) {
-          ctx.fillStyle = "#e74c3c";
-          ctx.strokeStyle = "#000";
+          ctx.fillStyle = "#e74c3c"; ctx.strokeStyle = "#000";
           drawRoundedRect(ctx, this.x, this.y, this.width, this.height, 4);
-          ctx.fillStyle = "#000";
-          ctx.font = "20px sans-serif";
+          ctx.fillStyle = "#000"; ctx.font = "20px sans-serif";
           ctx.textAlign = "center"; ctx.textBaseline = "middle";
           ctx.fillText("💣", this.x + this.width/2, this.y + this.height/2);
         }
         else if (this.isDouble) {
-          ctx.fillStyle = "#f39c12";
-          ctx.strokeStyle = "#000";
+          ctx.fillStyle = "#f39c12"; ctx.strokeStyle = "#000";
           drawRoundedRect(ctx, this.x, this.y, this.width, this.height, 4);
-          ctx.fillStyle = "#000";
-          ctx.font = "20px sans-serif";
+          ctx.fillStyle = "#000"; ctx.font = "20px sans-serif";
           ctx.textAlign = "center"; ctx.textBaseline = "middle";
           ctx.fillText("✦", this.x + this.width/2, this.y + this.height/2);
         }
         else if (this.isMultiBall) {
-          ctx.fillStyle = "#9b59b6";
-          ctx.strokeStyle = "#000";
+          ctx.fillStyle = "#9b59b6"; ctx.strokeStyle = "#000";
           drawRoundedRect(ctx, this.x, this.y, this.width, this.height, 4);
-          ctx.fillStyle = "#fff";
-          ctx.font = "20px sans-serif";
+          ctx.fillStyle = "#fff"; ctx.font = "20px sans-serif";
           ctx.textAlign = "center"; ctx.textBaseline = "middle";
           ctx.fillText("🎱", this.x + this.width/2, this.y + this.height/2);
         }
         else {
-          // Normal brick
           const grad = ctx.createLinearGradient(this.x, this.y, this.x + this.width, this.y + this.height);
           grad.addColorStop(0, "#e74c3c");
           grad.addColorStop(1, "#c0392b");
-          ctx.fillStyle = grad;
-          ctx.strokeStyle = "#900";
+          ctx.fillStyle = grad; ctx.strokeStyle = "#900";
           drawRoundedRect(ctx, this.x, this.y, this.width, this.height, 4);
 
-          ctx.fillStyle = "#fff";
-          ctx.font = "16px sans-serif";
+          ctx.fillStyle = "#fff"; ctx.font = "16px sans-serif";
           ctx.textAlign = "center"; ctx.textBaseline = "middle";
           const text = String(this.hp <= 0 ? 0 : this.hp);
           ctx.fillText(text, this.x + this.width/2, this.y + this.height/2);
@@ -608,7 +590,7 @@
         this.y = Math.floor(y / 10) * 10;
         this.width = BRICK_WIDTH;
         this.height = BRICK_HEIGHT;
-        this.type = type; // "A" or "B"
+        this.type = type;
         this.exitAngle = -Math.PI / 2;
         this.lastMoveTime = Date.now();
       }
@@ -639,15 +621,10 @@
           const ax = cx + Math.cos(this.exitAngle) * len;
           const ay = cy + Math.sin(this.exitAngle) * len;
 
-          ctx.strokeStyle = "#fff";
-          ctx.lineWidth = 3;
-          ctx.beginPath();
-          ctx.moveTo(cx, cy);
-          ctx.lineTo(ax, ay);
-          ctx.stroke();
+          ctx.strokeStyle = "#fff"; ctx.lineWidth = 3;
+          ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(ax, ay); ctx.stroke();
 
-          ctx.fillStyle = "#fff";
-          const arrowSize = 6;
+          ctx.fillStyle = "#fff"; const arrowSize = 6;
           const theta = this.exitAngle;
           const back1 = theta + Math.PI - 0.4;
           const back2 = theta + Math.PI + 0.4;
@@ -702,7 +679,6 @@
       }
     }
 
-    // ======= Helper Functions =======
     function placePortalAnytime(x, y) {
       for (const b of bricks) {
         if (
@@ -859,9 +835,9 @@
           } else if (lives > 0) {
             lives--;
             if (lives > 0) {
-              respawnCannon();
+             	respawnCannon();
             } else {
-              endGame(false);
+             	endGame(false);
             }
           }
         }
@@ -937,7 +913,6 @@
       return (sinceMove >= PORTAL_COOLDOWN && sinceTele >= PORTAL_COOLDOWN);
     }
 
-    // ===== Input Handlers =====
     canvas.addEventListener("pointerdown", e => {
       if (gameState !== "playing") return;
       const { x, y } = getVirtualPointer(e);
@@ -1087,10 +1062,9 @@
     lastTime = performance.now();
     requestAnimationFrame(gameLoop);
 
-    // Resize handler: keep canvas CSS filling viewport; no change needed
+    // Resize handler
     window.addEventListener("resize", () => {
-      // The CSS ensures #gameCanvas always fills 100% × 100% of #canvasContainer,
-      // which is 100% × 100% of the screen. Drawing still uses 480×640 virtual.
+      // The CSS ensures full-screen; no extra code needed.
     });
   </script>
 </body>
