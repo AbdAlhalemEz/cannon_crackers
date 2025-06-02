@@ -2,8 +2,8 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Portal Breaker – Adaptive Velocity & Paddle Drag</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Portal Breaker – Full-Screen</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
 
   <style>
     /* ===== Full-Screen Setup ===== */
@@ -14,27 +14,27 @@
       padding: 0;
       background: #222;
       display: flex;
-      flex-direction: column;
       align-items: center;
       justify-content: center;
       overflow: hidden;
-      touch-action: none; /* Prevent mobile scroll on canvas touches */
+      touch-action: none; /* Prevent mobile scroll when dragging */
     }
 
     /* ===== Canvas Container ===== */
     #canvasContainer {
       position: relative;
-      width: 100vw;
-      height: 100vh;
+      width: 100%;
+      height: 100%;
       background: #000;
       display: flex;
       align-items: center;
       justify-content: center;
-      overflow: hidden;
     }
+
+    /* Stretch the canvas to fill the container */
     #gameCanvas {
-      max-width: 100%;
-      max-height: 100%;
+      width: 100%;
+      height: 100%;
       background: #f0f0f0;
       image-rendering: pixelated;
     }
@@ -72,7 +72,7 @@
   </style>
 </head>
 <body>
-  <!-- Canvas Container with 480×640 Canvas inside -->
+  <!-- Full-Screen Canvas Container -->
   <div id="canvasContainer">
     <canvas id="gameCanvas" width="480" height="640"></canvas>
   </div>
@@ -86,11 +86,13 @@
 
   <script>
     // ============================
-    // Portal Breaker – Adaptive Velocity & Paddle Drag
+    // Portal Breaker – Full-Screen Adaptation
     // ============================
 
     const canvas = document.getElementById("gameCanvas");
     const ctx = canvas.getContext("2d");
+
+    // Virtual resolution
     const VIRTUAL_WIDTH = 480;
     const VIRTUAL_HEIGHT = 640;
 
@@ -110,18 +112,18 @@
 
     let cannon = null;
     let paddle = null;
-    let balls = [];   // Array of Ball instances
+    let balls = [];
 
     let portalPlacementActive = false;
-    let nextPortalType = "A";  // "A" first, then "B"
-    let skipNextFire = false;  // skip one tap right after placing a portal
+    let nextPortalType = "A";
+    let skipNextFire = false;
 
-    // Drag/Rotate state for portals:
-    let draggingPortal = null;      // "A" or "B" or null
-    let needToRotateB = false;      // true when exit angle must be set/finalized
-    let justPlacedB = false;        // ignore the very next pointerup after placement
+    // Drag/Rotate for portals
+    let draggingPortal = null;      // "A" or "B"
+    let needToRotateB = false;
+    let justPlacedB = false;
 
-    // Paddle drag state:
+    // Paddle drag
     let draggingPaddle = false;
     let lastPointerX = 0;
 
@@ -132,32 +134,19 @@
     const BRICK_HEIGHT = 20;
     const BRICK_MARGIN = 5;
 
-    // Number of rows currently in play (starts at 4)
+    // Rows and speed
     let currentRowCount = 4;
-
-    // Special types array (including multiball)
     const specialTypes = [
-      "extra",
-      "cursed",
-      "speedup",
-      "slowdown",
-      "sticky",
-      "teleport",
-      "invisible",
-      "bomb",
-      "double",
-      "multiball"
+      "extra","cursed","speedup","slowdown","sticky",
+      "teleport","invisible","bomb","double","multiball"
     ];
-
-    // Interval sequence: 60s, 50s, 40s, then 30s
     const rowIntervals = [60000, 50000, 40000];
     let nextIntervalIndex = 0;
     let scheduledRowTimeout = null;
 
-    // Ball base speed, increases with each new row
     let ballBaseSpeed = 500;
 
-    // ======= Helper for Rounded Rectangles =======
+    // ======= Helpers =======
     function drawRoundedRect(ctx, x, y, w, h, r) {
       ctx.beginPath();
       ctx.moveTo(x + r, y);
@@ -175,8 +164,6 @@
     }
 
     // ======= Classes =======
-
-    // 1) Ball
     class Ball {
       constructor(x, y, vx, vy) {
         this.x = x;
@@ -193,26 +180,23 @@
         if (!this.active && !this.isStuck) return;
         if (this.isStuck) return;
 
-        // Move
         this.x += this.vx * delta;
         this.y += this.vy * delta;
 
-        // 1) Check Portal A → teleport
+        // Portal teleport
         if (
-          portalA !== null &&
-          portalB !== null &&
+          portalA && portalB &&
           !this.justTeleported &&
           portalA.collidesWith(this)
         ) {
           portalA.lastMoveTime = Date.now();
           portalB.lastMoveTime = Date.now();
           lastTeleportTime = Date.now();
-
           this.teleportToPortalB();
           return;
         }
 
-        // 2) Wall collisions
+        // Wall bounce
         if (this.x - this.radius <= 0 || this.x + this.radius >= VIRTUAL_WIDTH) {
           this.vx *= -1;
         }
@@ -220,7 +204,7 @@
           this.vy *= -1;
         }
 
-        // 3) Bottom/Paddle
+        // Paddle
         if (this.y + this.radius >= VIRTUAL_HEIGHT) {
           if (
             paddle &&
@@ -230,76 +214,71 @@
             const paddleCenter = paddle.x + paddle.width / 2;
             const relativeHit = (this.x - paddleCenter) / (paddle.width / 2);
             const clamped = Math.max(-1, Math.min(1, relativeHit));
-            const maxHoriz = 500;
             const horiz = reverseActive ? -clamped : clamped;
-            this.vx = horiz * maxHoriz;
+            this.vx = horiz * 500;
             this.vy = -Math.abs(this.vy);
             this.y = VIRTUAL_HEIGHT - this.radius - paddle.height;
           } else {
-            // Missed the paddle: deactivate this ball
             this.active = false;
           }
         }
 
-        // 4) Brick collisions
+        // Brick collisions
         for (const brick of bricks) {
           if (
-            (brick.isExtra    && !brick.collected) ||
-            (brick.isCursed   && !brick.collected) ||
-            (brick.isSpeedUp  && !brick.collected) ||
+            (brick.isExtra && !brick.collected) ||
+            (brick.isCursed && !brick.collected) ||
+            (brick.isSpeedUp && !brick.collected) ||
             (brick.isSlowDown && !brick.collected) ||
-            (brick.isSticky   && !brick.collected) ||
+            (brick.isSticky && !brick.collected) ||
             (brick.isTeleport && !brick.collected) ||
             (brick.isInvisible && brick.hp > 0) ||
-            (brick.isBomb     && !brick.collected) ||
-            (brick.isDouble   && !brick.collected) ||
+            (brick.isBomb && !brick.collected) ||
+            (brick.isDouble && !brick.collected) ||
             (brick.isMultiBall && !brick.collected) ||
             (!brick.isExtra && !brick.isCursed && !brick.isSpeedUp &&
              !brick.isSlowDown && !brick.isSticky && !brick.isTeleport &&
-             !brick.isInvisible && !brick.isBomb && !brick.isDouble && !brick.isMultiBall && brick.hp > 0)
+             !brick.isInvisible && !brick.isBomb && !brick.isDouble &&
+             !brick.isMultiBall && brick.hp > 0)
           ) {
             if (brick.collidesWith(this)) {
-              // EXTRA-LIFE (★)
-              if (brick.isExtra && !brick.collected) {
+              // Handle each type...
+              if (brick.isExtra) {
                 extraLives++;
                 brick.collected = true;
                 score += 200;
               }
-              // CURSED (!) → activate reverse
-              else if (brick.isCursed && !brick.collected) {
+              else if (brick.isCursed) {
                 brick.collected = true;
                 score += 150;
                 reverseActive = true;
                 reverseEndTime = Date.now() + 5000;
               }
-              // SPEED-UP (⚡)
-              else if (brick.isSpeedUp && !brick.collected) {
+              else if (brick.isSpeedUp) {
                 brick.collected = true;
                 score += 150;
                 this.vx *= 2;
                 this.vy *= 2;
                 setTimeout(() => {
-                  if (this && this.active && !this.isStuck) {
+                  if (this.active && !this.isStuck) {
                     this.vx /= 2;
                     this.vy /= 2;
                   }
                 }, 4000);
               }
-              // SLOW-DOWN (🐢)
-              else if (brick.isSlowDown && !brick.collected) {
+              else if (brick.isSlowDown) {
                 brick.collected = true;
                 score += 150;
                 this.vx /= 2;
                 this.vy /= 2;
                 setTimeout(() => {
-                  if (this && this.active && !this.isStuck) {
+                  if (this.active && !this.isStuck) {
                     this.vx *= 2;
                     this.vy *= 2;
                   }
                 }, 5000);
               }
-              // STICKY (🕳️)
-              else if (brick.isSticky && !brick.collected) {
+              else if (brick.isSticky) {
                 brick.collected = true;
                 score += 120;
                 this.isStuck = true;
@@ -316,8 +295,7 @@
                   }
                 }, 1000);
               }
-              // TELEPORT (🔀)
-              else if (brick.isTeleport && !brick.collected) {
+              else if (brick.isTeleport) {
                 brick.collected = true;
                 score += 120;
                 let valid = false, newX, newY;
@@ -340,7 +318,6 @@
                 this.x = newX;
                 this.y = newY;
               }
-              // INVISIBLE (2-step)
               else if (brick.isInvisible && brick.hp > 0) {
                 if (!brick.hasBeenHitOnce) {
                   brick.hasBeenHitOnce = true;
@@ -350,8 +327,7 @@
                   score += 100;
                 }
               }
-              // BOMB (💣) → clears neighbors
-              else if (brick.isBomb && !brick.collected) {
+              else if (brick.isBomb) {
                 brick.collected = true;
                 score += 250;
                 const neighbors = bricks.filter(b2 => {
@@ -370,13 +346,11 @@
                   nb.collected = true;
                 }
               }
-              // DOUBLE (✦) → big point bonus
-              else if (brick.isDouble && !brick.collected) {
+              else if (brick.isDouble) {
                 brick.collected = true;
                 score += 350;
               }
-              // MULTIBALL (🎱) → spawn two extra balls
-              else if (brick.isMultiBall && !brick.collected) {
+              else if (brick.isMultiBall) {
                 brick.collected = true;
                 score += 300;
                 const baseAngle = Math.atan2(this.vy, this.vx);
@@ -389,21 +363,8 @@
                 const vy2 = Math.sin(angle2) * speedMag;
                 balls.push(new Ball(this.x, this.y, vx1, vy1));
                 balls.push(new Ball(this.x, this.y, vx2, vy2));
-                // Original ball continues
               }
-              // NORMAL (red)
-              else if (
-                !brick.isExtra &&
-                !brick.isCursed &&
-                !brick.isSpeedUp &&
-                !brick.isSlowDown &&
-                !brick.isSticky &&
-                !brick.isTeleport &&
-                !brick.isInvisible &&
-                !brick.isBomb &&
-                !brick.isDouble &&
-                !brick.isMultiBall
-              ) {
+              else {
                 brick.onHit();
                 score += 100 * brick.initialHP;
               }
@@ -467,10 +428,9 @@
       }
     }
 
-    // 2) Paddle (made larger)
     class Paddle {
       constructor() {
-        this.width = 150;  // increased from 100 to 150
+        this.width = 150;
         this.height = 10;
         this.x = (VIRTUAL_WIDTH - this.width) / 2;
         this.y = VIRTUAL_HEIGHT - this.height;
@@ -481,7 +441,6 @@
       }
     }
 
-    // 3) Brick
     class Brick {
       constructor(x, y, type = "normal", maxHP = 4) {
         this.x = x;
@@ -538,7 +497,7 @@
       draw(ctx) {
         ctx.lineWidth = 1;
         if (this.isCursed) {
-          ctx.fillStyle = "#8e44ad";    // purple
+          ctx.fillStyle = "#8e44ad";
           ctx.strokeStyle = "#000";
           drawRoundedRect(ctx, this.x, this.y, this.width, this.height, 4);
           ctx.fillStyle = "#fff";
@@ -547,7 +506,7 @@
           ctx.fillText("!", this.x + this.width/2, this.y + this.height/2);
         }
         else if (this.isSpeedUp) {
-          ctx.fillStyle = "#f1c40f";    // gold
+          ctx.fillStyle = "#f1c40f";
           ctx.strokeStyle = "#000";
           drawRoundedRect(ctx, this.x, this.y, this.width, this.height, 4);
           ctx.fillStyle = "#000";
@@ -556,7 +515,7 @@
           ctx.fillText("⚡", this.x + this.width/2, this.y + this.height/2);
         }
         else if (this.isSlowDown) {
-          ctx.fillStyle = "#3498db";    // blue
+          ctx.fillStyle = "#3498db";
           ctx.strokeStyle = "#000";
           drawRoundedRect(ctx, this.x, this.y, this.width, this.height, 4);
           ctx.fillStyle = "#fff";
@@ -565,7 +524,7 @@
           ctx.fillText("🐢", this.x + this.width/2, this.y + this.height/2);
         }
         else if (this.isSticky) {
-          ctx.fillStyle = "#27ae60";    // green
+          ctx.fillStyle = "#27ae60";
           ctx.strokeStyle = "#000";
           drawRoundedRect(ctx, this.x, this.y, this.width, this.height, 4);
           ctx.fillStyle = "#fff";
@@ -574,7 +533,7 @@
           ctx.fillText("🕳️", this.x + this.width/2, this.y + this.height/2);
         }
         else if (this.isTeleport) {
-          ctx.fillStyle = "#1abc9c";    // teal
+          ctx.fillStyle = "#1abc9c";
           ctx.strokeStyle = "#000";
           drawRoundedRect(ctx, this.x, this.y, this.width, this.height, 4);
           ctx.fillStyle = "#000";
@@ -584,13 +543,13 @@
         }
         else if (this.isInvisible) {
           if (!this.hasBeenHitOnce) {
-            ctx.fillStyle = "#bdc3c7";  // light gray
+            ctx.fillStyle = "#bdc3c7";
             ctx.strokeStyle = "#000";
             drawRoundedRect(ctx, this.x, this.y, this.width, this.height, 4);
           }
         }
         else if (this.isExtra) {
-          ctx.fillStyle = "#2ecc71";    // bright green
+          ctx.fillStyle = "#2ecc71";
           ctx.strokeStyle = "#000";
           drawRoundedRect(ctx, this.x, this.y, this.width, this.height, 4);
           ctx.fillStyle = "#fff";
@@ -599,7 +558,7 @@
           ctx.fillText("★", this.x + this.width/2, this.y + this.height/2);
         }
         else if (this.isBomb) {
-          ctx.fillStyle = "#e74c3c";    // red
+          ctx.fillStyle = "#e74c3c";
           ctx.strokeStyle = "#000";
           drawRoundedRect(ctx, this.x, this.y, this.width, this.height, 4);
           ctx.fillStyle = "#000";
@@ -608,7 +567,7 @@
           ctx.fillText("💣", this.x + this.width/2, this.y + this.height/2);
         }
         else if (this.isDouble) {
-          ctx.fillStyle = "#f39c12";    // orange
+          ctx.fillStyle = "#f39c12";
           ctx.strokeStyle = "#000";
           drawRoundedRect(ctx, this.x, this.y, this.width, this.height, 4);
           ctx.fillStyle = "#000";
@@ -617,7 +576,7 @@
           ctx.fillText("✦", this.x + this.width/2, this.y + this.height/2);
         }
         else if (this.isMultiBall) {
-          ctx.fillStyle = "#9b59b6";    // violet
+          ctx.fillStyle = "#9b59b6";
           ctx.strokeStyle = "#000";
           drawRoundedRect(ctx, this.x, this.y, this.width, this.height, 4);
           ctx.fillStyle = "#fff";
@@ -626,7 +585,7 @@
           ctx.fillText("🎱", this.x + this.width/2, this.y + this.height/2);
         }
         else {
-          // Normal brick: red gradient
+          // Normal brick
           const grad = ctx.createLinearGradient(this.x, this.y, this.x + this.width, this.y + this.height);
           grad.addColorStop(0, "#e74c3c");
           grad.addColorStop(1, "#c0392b");
@@ -643,7 +602,6 @@
       }
     }
 
-    // 4) Portal
     class Portal {
       constructor(x, y, type) {
         this.x = Math.floor(x / 10) * 10;
@@ -651,7 +609,7 @@
         this.width = BRICK_WIDTH;
         this.height = BRICK_HEIGHT;
         this.type = type; // "A" or "B"
-        this.exitAngle = -Math.PI / 2; // default: straight up
+        this.exitAngle = -Math.PI / 2;
         this.lastMoveTime = Date.now();
       }
       isReady() {
@@ -710,7 +668,6 @@
       }
     }
 
-    // 5) Cannon
     class Cannon {
       constructor() {
         this.x = VIRTUAL_WIDTH / 2;
@@ -746,9 +703,7 @@
     }
 
     // ======= Helper Functions =======
-
     function placePortalAnytime(x, y) {
-      // Reject if overlap any brick
       for (const b of bricks) {
         if (
           x >= b.x && x <= b.x + b.width &&
@@ -760,12 +715,11 @@
       if (nextPortalType === "A") {
         portalA = new Portal(x - BRICK_WIDTH / 2, y - BRICK_HEIGHT / 2, "A");
         nextPortalType = "B";
-        // Remain in portal placement mode for B
       } else {
         portalB = new Portal(x - BRICK_WIDTH / 2, y - BRICK_HEIGHT / 2, "B");
         needToRotateB = true;
         justPlacedB = true;
-        portalPlacementActive = false; // <-- STOP placement mode so next clicks rotate
+        portalPlacementActive = false;
       }
       return true;
     }
@@ -782,7 +736,6 @@
       allowFiring = false;
     }
 
-    // Create initial 4 rows of bricks, one special per row
     function setupInitialBricks() {
       bricks = [];
       for (let row = 0; row < currentRowCount; row++) {
@@ -800,14 +753,11 @@
       }
     }
 
-    // Add one new row at the top, shifting existing bricks downward
     function addNewRow() {
-      if (bricks.length === 0) return;
-      for (const b of bricks) {
-        b.y += (BRICK_HEIGHT + BRICK_MARGIN);
-      }
+      if (!bricks.length) return;
+      for (const b of bricks) b.y += (BRICK_HEIGHT + BRICK_MARGIN);
       currentRowCount++;
-      ballBaseSpeed += 50; // increase base speed when a new row is added
+      ballBaseSpeed += 50;
       const yTop = 40;
       const specialCol = Math.floor(Math.random() * 7);
       const specialType = specialTypes[Math.floor(Math.random() * specialTypes.length)];
@@ -821,12 +771,10 @@
       }
     }
 
-    // Schedule next row with variable interval
     function scheduleNextRow() {
       let interval;
       if (nextIntervalIndex < rowIntervals.length) {
-        interval = rowIntervals[nextIntervalIndex];
-        nextIntervalIndex++;
+        interval = rowIntervals[nextIntervalIndex++];
       } else {
         interval = 30000;
       }
@@ -853,7 +801,7 @@
     function initGame() {
       if (scheduledRowTimeout) clearTimeout(scheduledRowTimeout);
       nextIntervalIndex = 0;
-      ballBaseSpeed = 500; // reset base speed
+      ballBaseSpeed = 500;
 
       lives = 1;
       extraLives = 0;
@@ -862,8 +810,8 @@
       reverseEndTime = 0;
       portalA = null;
       portalB = null;
-      allowFiring = false;  // wait until portals placed
-      portalPlacementActive = true; // start by placing A
+      allowFiring = false;
+      portalPlacementActive = true;
       nextPortalType = "A";
       skipNextFire = false;
       draggingPortal = null;
@@ -904,7 +852,6 @@
         });
         balls = balls.filter(b => b.active || b.isStuck);
 
-        // Only check game-over/life loss if the cannon has been fired (cannon not visible)
         if (!cannon.visible && balls.length === 0) {
           if (extraLives > 0) {
             extraLives--;
@@ -927,20 +874,14 @@
     function draw() {
       ctx.clearRect(0, 0, VIRTUAL_WIDTH, VIRTUAL_HEIGHT);
 
-      // Draw bricks
       for (const b of bricks) b.draw(ctx);
-
-      // Draw cannon & paddle & balls
       if (cannon) cannon.draw(ctx);
       if (paddle) paddle.draw(ctx);
       balls.forEach(b => b.draw(ctx));
-
-      // Draw portals
       if (portalA) portalA.draw(ctx);
       if (portalB) portalB.draw(ctx);
 
-      // Top panel
-      ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
+      ctx.fillStyle = "rgba(0,0,0,0.6)";
       ctx.fillRect(0, 0, VIRTUAL_WIDTH, 60);
 
       ctx.fillStyle = "#fff";
@@ -948,7 +889,6 @@
       ctx.fillText("Score: " + score, 10, 24);
       ctx.fillText("Lives: " + lives + "  Extra: " + extraLives, VIRTUAL_WIDTH - 200, 24);
 
-      // Reverse timer
       const now = Date.now();
       if (reverseActive) {
         let rem = Math.ceil((reverseEndTime - now) / 1000);
@@ -958,13 +898,11 @@
         ctx.fillText("Reverse: " + rem + "s", 10, 48);
       }
 
-      // If rotating Portal B, show instruction
       if (needToRotateB) {
         ctx.fillStyle = "#fff";
         ctx.font = "14px sans-serif";
         ctx.fillText("Move cursor to set exit, then tap to confirm", 20, VIRTUAL_HEIGHT - 20);
       }
-      // If in portal placement mode, show hint
       else if (portalPlacementActive) {
         ctx.fillStyle = "#fff";
         ctx.font = "20px sans-serif";
@@ -1000,18 +938,15 @@
     }
 
     // ===== Input Handlers =====
-
     canvas.addEventListener("pointerdown", e => {
       if (gameState !== "playing") return;
       const { x, y } = getVirtualPointer(e);
 
-      // 1) If in portal placement mode, place accordingly
       if (portalPlacementActive) {
         placePortalAnytime(x, y);
         return;
       }
 
-      // 2) If Portal B exists and ready, start dragging:
       if (
         portalB &&
         canUsePortal(portalB) &&
@@ -1024,7 +959,6 @@
         return;
       }
 
-      // 3) If Portal A exists and ready, start dragging:
       if (
         portalA &&
         canUsePortal(portalA) &&
@@ -1036,7 +970,6 @@
         return;
       }
 
-      // 4) Otherwise, start paddle drag if cannon fired
       const effectiveX = reverseActive ? (VIRTUAL_WIDTH - x) : x;
       if (!cannon.visible && !needToRotateB) {
         draggingPaddle = true;
@@ -1048,14 +981,12 @@
       if (gameState !== "playing") return;
       const { x, y } = getVirtualPointer(e);
 
-      // If rotating Portal B:
       if (needToRotateB && portalB) {
         const cx = portalB.x + portalB.width / 2;
         const cy = portalB.y + portalB.height / 2;
         portalB.exitAngle = Math.atan2(y - cy, x - cx);
         return;
       }
-      // If dragging Portal B:
       if (draggingPortal === "B" && portalB) {
         portalB.x = x - portalB.width / 2;
         portalB.y = y - portalB.height / 2;
@@ -1063,7 +994,6 @@
         portalB.y = Math.round(portalB.y / 10) * 10;
         return;
       }
-      // If dragging Portal A:
       if (draggingPortal === "A" && portalA) {
         portalA.x = x - portalA.width / 2;
         portalA.y = y - portalA.height / 2;
@@ -1072,12 +1002,10 @@
         return;
       }
 
-      // Otherwise: handle paddle drag or cannon aim
       const effectiveX = reverseActive ? (VIRTUAL_WIDTH - x) : x;
       if (draggingPaddle) {
         const dx = effectiveX - lastPointerX;
         paddle.x += dx;
-        // Clamp within bounds
         paddle.x = Math.max(0, Math.min(paddle.x, VIRTUAL_WIDTH - paddle.width));
         lastPointerX = effectiveX;
       } else {
@@ -1089,44 +1017,35 @@
       if (gameState !== "playing") return;
       const { x, y } = getVirtualPointer(e);
 
-      // 1) If we were rotating Portal B:
       if (needToRotateB && portalB) {
-        // If it was just placed, ignore this pointerup:
         if (justPlacedB) {
           justPlacedB = false;
-          // After initial placement of B, still in portal mode until rotation
           return;
         }
-        // Otherwise finalize rotation:
         needToRotateB = false;
         portalB.lastMoveTime = Date.now();
         allowFiring = true;
         skipNextFire = true;
         return;
       }
-      // 2) If we were dragging Portal B:
       if (draggingPortal === "B" && portalB) {
         draggingPortal = null;
         portalB.lastMoveTime = Date.now();
-        // Immediately need to rotate the exit:
         needToRotateB = true;
         allowFiring = false;
         skipNextFire = true;
         return;
       }
-      // 3) If we were dragging Portal A:
       if (draggingPortal === "A" && portalA) {
         portalA.lastMoveTime = Date.now();
         draggingPortal = null;
         return;
       }
 
-      // 4) If skipNextFire is set, consume it and do nothing
       if (skipNextFire) {
         skipNextFire = false;
         return;
       }
-      // End paddle drag
       if (draggingPaddle) {
         draggingPaddle = false;
         return;
@@ -1135,7 +1054,6 @@
         return;
       }
 
-      // Check if tap was inside a brick
       let insideBrick = false;
       for (const b of bricks) {
         if (
@@ -1146,7 +1064,6 @@
           break;
         }
       }
-      // Check if tap was inside Portal B
       let insideB = false;
       if (
         portalB &&
@@ -1156,13 +1073,11 @@
         insideB = true;
       }
 
-      // Fire if allowed, not clicking bricks or Portal B, and cannon visible
       if (allowFiring && !insideBrick && !insideB && cannon.visible) {
         fireBall();
       }
     });
 
-    // “Restart” button
     document.getElementById("restartBtn").addEventListener("click", () => {
       initGame();
     });
@@ -1171,6 +1086,12 @@
     initGame();
     lastTime = performance.now();
     requestAnimationFrame(gameLoop);
+
+    // Resize handler: keep canvas CSS filling viewport; no change needed
+    window.addEventListener("resize", () => {
+      // The CSS ensures #gameCanvas always fills 100% × 100% of #canvasContainer,
+      // which is 100% × 100% of the screen. Drawing still uses 480×640 virtual.
+    });
   </script>
 </body>
 </html>
