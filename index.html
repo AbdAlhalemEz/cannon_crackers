@@ -2,10 +2,11 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Portal Breaker – Single Ball & Extra Life Block</title>
+  <title>Portal Breaker – Paddle Control</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
   <style>
+    /* ===== Full‐Screen Setup ===== */
     html, body {
       width: 100%;
       height: 100%;
@@ -17,8 +18,10 @@
       align-items: center;
       justify-content: center;
       overflow: hidden;
-      touch-action: none;
+      touch-action: none; /* Prevent mobile scroll on canvas touches */
     }
+
+    /* ===== “Place Portals” Button ===== */
     #placePortalsBtn {
       margin: 8px 0;
       padding: 8px 16px;
@@ -26,7 +29,7 @@
       cursor: pointer;
       border: none;
       background: #3498db;
-      color: #fff;
+      color: white;
       border-radius: 4px;
       transition: transform 0.1s;
       z-index: 10;
@@ -34,6 +37,7 @@
     #placePortalsBtn:hover { transform: scale(1.05); }
     #placePortalsBtn:active { transform: scale(1.0); }
 
+    /* ===== Canvas Container ===== */
     #canvasContainer {
       position: relative;
       width: 100vw;
@@ -50,13 +54,13 @@
       background: #f0f0f0;
       image-rendering: pixelated;
     }
+
+    /* ===== Overlay (Game Over) ===== */
     .overlay {
       position: absolute;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 100%;
-      background: rgba(0, 0, 0, 0.85);
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: rgba(0,0,0,0.85);
       display: flex;
       flex-direction: column;
       align-items: center;
@@ -65,7 +69,7 @@
     }
     .overlay.hidden { display: none; }
     .overlay h2, .overlay p {
-      color: #fff;
+      color: white;
       margin-bottom: 20px;
       text-align: center;
     }
@@ -75,7 +79,7 @@
       cursor: pointer;
       border: none;
       background: #e67e22;
-      color: #fff;
+      color: white;
       border-radius: 5px;
       transition: transform 0.1s;
     }
@@ -84,85 +88,168 @@
   </style>
 </head>
 <body>
+  <!-- “Place Portals” Button -->
   <button id="placePortalsBtn">Place Portals</button>
+
+  <!-- Canvas Container with 480×640 Canvas inside -->
   <div id="canvasContainer">
     <canvas id="gameCanvas" width="480" height="640"></canvas>
   </div>
+
+  <!-- Game Over Overlay -->
   <div id="gameOverScreen" class="overlay hidden">
     <h2 id="gameOverText">Game Over</h2>
     <p id="finalScore">Score: 0</p>
     <button id="restartBtn">Restart</button>
   </div>
+
   <script>
+    // ============================
+    // Portal Breaker – Enhanced Paddle Control
+    // ============================
     const canvas = document.getElementById("gameCanvas");
     const ctx = canvas.getContext("2d");
-    const VIRTUAL_WIDTH = 480, VIRTUAL_HEIGHT = 640;
+    const VIRTUAL_WIDTH = 480;
+    const VIRTUAL_HEIGHT = 640;
 
-    let gameState = "playing";
+    // ======= Game State =======
+    let gameState = "playing";  // "playing" or "gameover"
     let lives = 1;
     let extraLives = 0;
     let score = 0;
 
     let bricks = [];
-    let portalA = null, portalB = null;
+    let portalA = null;
+    let portalB = null;
     let allowFiring = false;
-    let cannon, paddle, ball = null;
-    let portalPlacementActive = false, nextPortalType = "A";
-    let isRotatingB = false, skipNextFire = false;
 
-    const BRICK_WIDTH = 60, BRICK_HEIGHT = 20, BRICK_MARGIN = 5;
+    let cannon = null;
+    let paddle = null;
+    let ball = null;   // Will be a Ball instance once fired
 
+    let portalPlacementActive = false;
+    let nextPortalType = "A"; // "A" first, then "B"
+    let isRotatingB = false;
+    let skipNextFire = false; // Skip one tap right after placing a portal
+
+    const BRICK_WIDTH = 60;
+    const BRICK_HEIGHT = 20;
+    const BRICK_MARGIN = 5;
+
+    // ======= Classes =======
+
+    // 1) Ball
     class Ball {
       constructor(x, y, vx, vy) {
-        this.x = x; this.y = y;
-        this.vx = vx; this.vy = vy;
-        this.radius = 5; this.active = true;
+        this.x = x;
+        this.y = y;
+        this.vx = vx;
+        this.vy = vy;
+        this.radius = 5;
+        this.active = true;
         this.justTeleported = false;
       }
       update(delta) {
         if (!this.active) return;
+
+        // Move
         this.x += this.vx * delta;
         this.y += this.vy * delta;
-        if (this.x - this.radius <= 0 || this.x + this.radius >= VIRTUAL_WIDTH) this.vx *= -1;
-        if (this.y - this.radius <= 0) this.vy *= -1;
+
+        // Wall collisions (left/right)
+        if (this.x - this.radius <= 0 || this.x + this.radius >= VIRTUAL_WIDTH) {
+          this.vx *= -1;
+        }
+        // Ceiling collision (top)
+        if (this.y - this.radius <= 0) {
+          this.vy *= -1;
+        }
+
+        // Bottom / Paddle (with enhanced angle control)
         if (this.y + this.radius >= VIRTUAL_HEIGHT) {
-          if (paddle && this.x >= paddle.x && this.x <= paddle.x + paddle.width) {
-            this.vy *= -1;
+          if (
+            paddle &&
+            this.x >= paddle.x &&
+            this.x <= paddle.x + paddle.width
+          ) {
+            // Compute horizontal offset from paddle center: range [-1..1]
+            const paddleCenter = paddle.x + paddle.width / 2;
+            const relativeHit = (this.x - paddleCenter) / (paddle.width / 2);
+            // Cap relativeHit to [-1, +1]
+            const clamped = Math.max(-1, Math.min(1, relativeHit));
+            // Choose a max horizontal speed:
+            const maxHoriz = 300;
+            // Assign new vx based on how far from center you hit:
+            this.vx = clamped * maxHoriz;
+            // Always send upward:
+            this.vy = -Math.abs(this.vy);
+            // Nudge ball up so it doesn't stick
             this.y = VIRTUAL_HEIGHT - this.radius - paddle.height;
           } else {
+            // Ball is lost
             this.active = false;
             lives--;
             if (lives > 0) {
+              respawnCannon();
+            } else if (extraLives > 0) {
+              extraLives--;
+              lives = 1;
               respawnCannon();
             } else {
               endGame(false);
             }
           }
         }
-        bricks.forEach(brick => {
-          if (brick.hp > 0 && brick.collidesWith(this)) {
-            if (brick.isExtra) {
-              extraLives++;
-              score += 200;
-            } else {
-              brick.onHit();
-              score += 100 * brick.initialHP;
+
+        // Brick collisions
+        for (const brick of bricks) {
+          if (
+            (brick.isExtra && !brick.collected) || 
+            (!brick.isExtra && brick.hp > 0)
+          ) {
+            if (brick.collidesWith(this)) {
+              if (brick.isExtra && !brick.collected) {
+                extraLives++;
+                brick.collected = true;
+                score += 200;
+              } else {
+                brick.onHit();
+                score += 100 * brick.initialHP;
+              }
+              this.reflect(brick, delta);
             }
-            this.reflect(brick, delta);
           }
+        }
+        // Remove destroyed normal bricks or collected extras
+        bricks = bricks.filter(b => {
+          if (b.isExtra) return !b.collected;
+          return b.hp > 0;
         });
-        bricks = bricks.filter(b => b.hp > 0 || b.isExtra && !b.collected);
-        if (portalA && portalB && !this.justTeleported && portalA.collidesWith(this)) {
+
+        // Portal A → teleport to B
+        if (
+          portalA !== null &&
+          portalB !== null &&
+          !this.justTeleported &&
+          portalA.collidesWith(this)
+        ) {
           this.teleportToPortalB();
         }
-        if (bricks.filter(b => !b.isExtra).length === 0) {
+
+        // Win condition: no normal bricks left
+        const normalLeft = bricks.filter(b => !b.isExtra).length;
+        if (normalLeft === 0) {
           endGame(true);
         }
       }
       reflect(brick, delta) {
+        // Determine reflection axis by checking previous position
         const prevX = this.x - this.vx * delta;
         const prevY = this.y - this.vy * delta;
-        if (prevY + this.radius <= brick.y || prevY - this.radius >= brick.y + BRICK_HEIGHT) {
+        if (
+          prevY + this.radius <= brick.y ||
+          prevY - this.radius >= brick.y + BRICK_HEIGHT
+        ) {
           this.vy *= -1;
         } else {
           this.vx *= -1;
@@ -174,13 +261,15 @@
         const offset = this.radius + 2;
         const cx = portalB.x + portalB.width / 2;
         const cy = portalB.y + portalB.height / 2;
+        // Move ball just outside Portal B
         this.x = cx + Math.cos(angle) * offset;
         this.y = cy + Math.sin(angle) * offset;
+        // Increase speed
         const baseSpeed = Math.hypot(this.vx, this.vy) + speedBoost;
         this.vx = Math.cos(angle) * baseSpeed;
         this.vy = Math.sin(angle) * baseSpeed;
         this.justTeleported = true;
-        setTimeout(() => this.justTeleported = false, 150);
+        setTimeout(() => { this.justTeleported = false; }, 150);
       }
       draw(ctx) {
         if (!this.active) return;
@@ -191,6 +280,7 @@
       }
     }
 
+    // 2) Paddle
     class Paddle {
       constructor() {
         this.width = 100;
@@ -204,49 +294,61 @@
       }
     }
 
+    // 3) Brick
     class Brick {
       constructor(x, y, isExtra = false) {
-        this.x = x; this.y = y;
+        this.x = x;
+        this.y = y;
         this.isExtra = isExtra;
-        this.initialHP = isExtra ? 1 : Math.floor(Math.random() * 10) + 1;
+        this.initialHP = isExtra ? 1 : (Math.floor(Math.random() * 10) + 1);
         this.hp = this.initialHP;
-        this.width = BRICK_WIDTH; this.height = BRICK_HEIGHT;
-        this.collected = false;
+        this.width = BRICK_WIDTH;
+        this.height = BRICK_HEIGHT;
+        this.collected = false; // for extra life bricks
       }
       collidesWith(ball) {
         const distX = Math.abs(ball.x - (this.x + this.width / 2));
         const distY = Math.abs(ball.y - (this.y + this.height / 2));
-        return !(distX > this.width / 2 + ball.radius || distY > this.height / 2 + ball.radius);
+        return !(
+          distX > this.width / 2 + ball.radius ||
+          distY > this.height / 2 + ball.radius
+        );
       }
       onHit() {
         if (!this.isExtra) this.hp--;
-        else this.collected = true;
       }
       draw(ctx) {
-        if (this.isExtra) ctx.fillStyle = "#2ecc71";
-        else ctx.fillStyle = "#e74c3c";
+        ctx.fillStyle = this.isExtra ? "#2ecc71" : "#e74c3c";
         ctx.fillRect(this.x, this.y, this.width, this.height);
-        ctx.strokeStyle = "#000"; ctx.lineWidth = 1;
+        ctx.strokeStyle = "#000";
+        ctx.lineWidth = 1;
         ctx.strokeRect(this.x, this.y, this.width, this.height);
         ctx.fillStyle = "#fff";
         ctx.font = "16px sans-serif";
-        ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
         const text = this.isExtra ? "★" : String(this.hp <= 0 ? 0 : this.hp);
         ctx.fillText(text, this.x + this.width / 2, this.y + this.height / 2);
       }
     }
 
+    // 4) Portal
     class Portal {
       constructor(x, y, type) {
         this.x = Math.floor(x / 10) * 10;
         this.y = Math.floor(y / 10) * 10;
-        this.width = BRICK_WIDTH; this.height = BRICK_HEIGHT;
-        this.type = type;
-        this.exitAngle = type === "B" ? -Math.PI / 2 : null;
+        this.width = BRICK_WIDTH;
+        this.height = BRICK_HEIGHT;
+        this.type = type; // "A" or "B"
+        this.exitAngle = (type === "B") ? -Math.PI / 2 : null;
       }
       collidesWith(ball) {
-        return ball.x >= this.x && ball.x <= this.x + this.width &&
-               ball.y >= this.y && ball.y <= this.y + this.height;
+        return (
+          ball.x >= this.x &&
+          ball.x <= this.x + this.width &&
+          ball.y >= this.y &&
+          ball.y <= this.y + this.height
+        );
       }
       draw(ctx) {
         ctx.fillStyle = this.type === "A" ? "#0064ff" : "#ff6400";
@@ -259,8 +361,12 @@
           const len = this.width / 2 - 4;
           const ax = cx + Math.cos(this.exitAngle) * len;
           const ay = cy + Math.sin(this.exitAngle) * len;
-          ctx.strokeStyle = "#fff"; ctx.lineWidth = 3;
-          ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(ax, ay); ctx.stroke();
+          ctx.strokeStyle = "#fff";
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.moveTo(cx, cy);
+          ctx.lineTo(ax, ay);
+          ctx.stroke();
           ctx.fillStyle = "#fff";
           ctx.beginPath();
           const arrowSize = 6;
@@ -276,11 +382,13 @@
             cx + Math.cos(back2) * arrowSize + Math.cos(theta) * len,
             cy + Math.sin(back2) * arrowSize + Math.sin(theta) * len
           );
-          ctx.closePath(); ctx.fill();
+          ctx.closePath();
+          ctx.fill();
         }
       }
     }
 
+    // 5) Cannon
     class Cannon {
       constructor() {
         this.x = VIRTUAL_WIDTH / 2;
@@ -315,28 +423,34 @@
       }
     }
 
+    // ======= Helper Functions =======
+
     function placePortalAnytime(x, y) {
+      // If (x,y) overlaps any brick, reject
       for (const b of bricks) {
-        if (x >= b.x && x <= b.x + b.width && y >= b.y && y <= b.y + b.height) {
+        if (
+          x >= b.x && x <= b.x + b.width &&
+          y >= b.y && y <= b.y + b.height
+        ) {
           return false;
         }
       }
       if (nextPortalType === "A") {
-        portalA = new Portal(x - BRICK_WIDTH/2, y - BRICK_HEIGHT/2, "A");
+        portalA = new Portal(x - BRICK_WIDTH / 2, y - BRICK_HEIGHT / 2, "A");
         nextPortalType = "B";
         placePortalsBtn.textContent = "Place Portal B";
       } else {
-        portalB = new Portal(x - BRICK_WIDTH/2, y - BRICK_HEIGHT/2, "B");
+        portalB = new Portal(x - BRICK_WIDTH / 2, y - BRICK_HEIGHT / 2, "B");
         allowFiring = true;
         portalPlacementActive = false;
         placePortalsBtn.textContent = "Place Portals";
       }
-      skipNextFire = true;
+      skipNextFire = true; // skip next tap so we don’t fire immediately
       return true;
     }
 
     function fireBall() {
-      if (!portalA || !portalB) return;
+      if (portalA === null || portalB === null) return;
       const speed = 300;
       const vx = Math.cos(cannon.angle) * speed;
       const vy = Math.sin(cannon.angle) * speed;
@@ -356,10 +470,11 @@
           bricks.push(new Brick(x, y));
         }
       }
-      const specialIndex = Math.floor(Math.random() * bricks.length);
-      bricks[specialIndex].isExtra = true;
-      bricks[specialIndex].hp = 1;
-      bricks[specialIndex].initialHP = 1;
+      // Pick one random brick to be the extra‐life brick
+      const idx = Math.floor(Math.random() * bricks.length);
+      bricks[idx].isExtra = true;
+      bricks[idx].hp = 1;
+      bricks[idx].initialHP = 1;
     }
 
     function endGame(win) {
@@ -377,9 +492,14 @@
     }
 
     function initGame() {
-      lives = 1; extraLives = 0; score = 0;
-      portalA = portalB = null;
-      allowFiring = false; portalPlacementActive = false; nextPortalType = "A";
+      lives = 1;
+      extraLives = 0;
+      score = 0;
+      portalA = null;
+      portalB = null;
+      allowFiring = false;
+      portalPlacementActive = false;
+      nextPortalType = "A";
       skipNextFire = false;
       cannon = new Cannon();
       paddle = new Paddle();
@@ -388,7 +508,7 @@
       gameState = "playing";
       canvas.style.pointerEvents = "auto";
       document.getElementById("gameOverScreen").classList.add("hidden");
-      draw();
+      draw(); // initial draw
     }
 
     let lastTime = 0;
@@ -397,9 +517,13 @@
       lastTime = time;
 
       if (gameState === "playing") {
-        if (ball) {
+        // Only update if ball exists AND is still active:
+        if (ball && ball.active) {
           ball.update(delta);
-          if (!ball.active) ball = null;
+        }
+        // If ball exists but just became inactive, clear it out:
+        else if (ball && !ball.active) {
+          ball = null;
         }
       }
 
@@ -409,18 +533,31 @@
 
     function draw() {
       ctx.clearRect(0, 0, VIRTUAL_WIDTH, VIRTUAL_HEIGHT);
-      bricks.forEach(b => b.draw(ctx));
+
+      // Draw bricks
+      for (const b of bricks) {
+        b.draw(ctx);
+      }
+
+      // Draw portals
       if (portalA) portalA.draw(ctx);
       if (portalB) portalB.draw(ctx);
-      cannon.draw(ctx);
-      paddle.draw(ctx);
+
+      // Draw cannon & paddle
+      if (cannon) cannon.draw(ctx);
+      if (paddle) paddle.draw(ctx);
+
+      // Draw ball if it exists
       if (ball) ball.draw(ctx);
+
+      // Draw HUD (score, lives, extra)
       ctx.fillStyle = "#000";
       ctx.font = "18px sans-serif";
       ctx.fillText("Score: " + score, 10, 20);
-      ctx.fillText("Lives: " + lives + "  Extra: " + extraLives, VIRTUAL_WIDTH - 160, 20);
+      ctx.fillText("Lives: " + lives + "  Extra: " + extraLives, VIRTUAL_WIDTH - 180, 20);
     }
 
+    // Convert CSS‐stretched pointer coords into 480×640 “virtual” coords
     function getVirtualPointer(e) {
       const rect = canvas.getBoundingClientRect();
       let cssX, cssY;
@@ -437,6 +574,9 @@
       };
     }
 
+    // ===== Input Handlers =====
+
+    // pointerdown: place portals or begin rotating Portal B
     canvas.addEventListener("pointerdown", e => {
       if (gameState !== "playing") return;
       const { x, y } = getVirtualPointer(e);
@@ -445,17 +585,22 @@
         placePortalAnytime(x, y);
         return;
       }
-      if (portalB && x >= portalB.x && x <= portalB.x + portalB.width &&
-          y >= portalB.y && y <= portalB.y + portalB.height) {
+      if (
+        portalB &&
+        x >= portalB.x && x <= portalB.x + portalB.width &&
+        y >= portalB.y && y <= portalB.y + portalB.height
+      ) {
         isRotatingB = true;
         const cx = portalB.x + portalB.width / 2;
         const cy = portalB.y + portalB.height / 2;
         portalB.exitAngle = Math.atan2(y - cy, x - cx);
         return;
       }
+      // Else do nothing here; firing on pointerup
     });
 
-    canvas.addEventListener("pointermove", e => {
+    // pointermove: rotate Portal B or aim cannon/paddle
+    document.getElementById("canvasContainer").addEventListener("pointermove", e => {
       if (gameState !== "playing") return;
       const { x, y } = getVirtualPointer(e);
 
@@ -469,6 +614,7 @@
       }
     });
 
+    // pointerup: stop rotating or fire exactly one ball
     canvas.addEventListener("pointerup", e => {
       if (gameState !== "playing") return;
       const { x, y } = getVirtualPointer(e);
@@ -481,22 +627,37 @@
         skipNextFire = false;
         return;
       }
-      if (portalPlacementActive) return;
+      if (portalPlacementActive) {
+        return;
+      }
 
+      // Check if tap/click was on a brick
       let insideBrick = false;
       for (const b of bricks) {
-        if (x >= b.x && x <= b.x + b.width && y >= b.y && y <= b.y + b.height) {
+        if (
+          x >= b.x && x <= b.x + b.width &&
+          y >= b.y && y <= b.y + b.height
+        ) {
           insideBrick = true;
           break;
         }
       }
-      let insideB = portalB && x >= portalB.x && x <= portalB.x + portalB.width &&
-                    y >= portalB.y && y <= portalB.y + portalB.height;
+      // Check if tap was inside Portal B
+      let insideB = false;
+      if (
+        portalB &&
+        x >= portalB.x && x <= portalB.x + portalB.width &&
+        y >= portalB.y && y <= portalB.y + portalB.height
+      ) {
+        insideB = true;
+      }
+
       if (allowFiring && !insideBrick && !insideB && cannon.visible) {
         fireBall();
       }
     });
 
+    // “Place Portals” button
     const placePortalsBtn = document.getElementById("placePortalsBtn");
     placePortalsBtn.addEventListener("click", () => {
       if (portalPlacementActive) return;
@@ -505,10 +666,12 @@
       placePortalsBtn.textContent = "Place Portal A";
     });
 
+    // “Restart” button on Game Over overlay
     document.getElementById("restartBtn").addEventListener("click", () => {
       initGame();
     });
 
+    // ===== Start the game =====
     initGame();
     lastTime = performance.now();
     requestAnimationFrame(gameLoop);
