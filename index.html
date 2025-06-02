@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Portal Breaker – Triple Ball Power‐Up</title>
+  <title>Portal Breaker – Adaptive Velocity & Paddle Drag</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
   <style>
@@ -20,22 +20,6 @@
       overflow: hidden;
       touch-action: none; /* Prevent mobile scroll on canvas touches */
     }
-
-    /* ===== “Place Portals” Button ===== */
-    #placePortalsBtn {
-      margin: 8px 0;
-      padding: 8px 16px;
-      font-size: 16px;
-      cursor: pointer;
-      border: none;
-      background: #3498db;
-      color: white;
-      border-radius: 4px;
-      transition: transform 0.1s;
-      z-index: 10;
-    }
-    #placePortalsBtn:hover { transform: scale(1.05); }
-    #placePortalsBtn:active { transform: scale(1.0); }
 
     /* ===== Canvas Container ===== */
     #canvasContainer {
@@ -88,9 +72,6 @@
   </style>
 </head>
 <body>
-  <!-- “Place Portals” Button -->
-  <button id="placePortalsBtn">Place Portals</button>
-
   <!-- Canvas Container with 480×640 Canvas inside -->
   <div id="canvasContainer">
     <canvas id="gameCanvas" width="480" height="640"></canvas>
@@ -105,7 +86,7 @@
 
   <script>
     // ============================
-    // Portal Breaker – Triple Ball Power‐Up
+    // Portal Breaker – Adaptive Velocity & Paddle Drag
     // ============================
 
     const canvas = document.getElementById("gameCanvas");
@@ -140,6 +121,10 @@
     let needToRotateB = false;      // true when exit angle must be set/finalized
     let justPlacedB = false;        // ignore the very next pointerup after placement
 
+    // Paddle drag state:
+    let draggingPaddle = false;
+    let lastPointerX = 0;
+
     const PORTAL_COOLDOWN = 10000;
     let lastTeleportTime = 0;
 
@@ -168,6 +153,9 @@
     const rowIntervals = [60000, 50000, 40000];
     let nextIntervalIndex = 0;
     let scheduledRowTimeout = null;
+
+    // Ball base speed, increases with each new row
+    let ballBaseSpeed = 500;
 
     // ======= Helper for Rounded Rectangles =======
     function drawRoundedRect(ctx, x, y, w, h, r) {
@@ -760,6 +748,7 @@
     // ======= Helper Functions =======
 
     function placePortalAnytime(x, y) {
+      // Reject if overlap any brick
       for (const b of bricks) {
         if (
           x >= b.x && x <= b.x + b.width &&
@@ -771,21 +760,19 @@
       if (nextPortalType === "A") {
         portalA = new Portal(x - BRICK_WIDTH / 2, y - BRICK_HEIGHT / 2, "A");
         nextPortalType = "B";
-        placePortalsBtn.textContent = "Place Portal B";
+        // Remain in portal placement mode for B
       } else {
         portalB = new Portal(x - BRICK_WIDTH / 2, y - BRICK_HEIGHT / 2, "B");
         needToRotateB = true;
         justPlacedB = true;
-        allowFiring = false;
-        portalPlacementActive = false;
-        placePortalsBtn.textContent = "Place Portals";
+        portalPlacementActive = false; // <-- STOP placement mode so next clicks rotate
       }
       return true;
     }
 
     function fireBall() {
       if (portalA === null || portalB === null || needToRotateB) return;
-      const speed = 500;
+      const speed = ballBaseSpeed;
       const vx = Math.cos(cannon.angle) * speed;
       const vy = Math.sin(cannon.angle) * speed;
       const spawnX = cannon.x + Math.cos(cannon.angle) * 40;
@@ -820,6 +807,7 @@
         b.y += (BRICK_HEIGHT + BRICK_MARGIN);
       }
       currentRowCount++;
+      ballBaseSpeed += 50; // increase base speed when a new row is added
       const yTop = 40;
       const specialCol = Math.floor(Math.random() * 7);
       const specialType = specialTypes[Math.floor(Math.random() * specialTypes.length)];
@@ -865,6 +853,7 @@
     function initGame() {
       if (scheduledRowTimeout) clearTimeout(scheduledRowTimeout);
       nextIntervalIndex = 0;
+      ballBaseSpeed = 500; // reset base speed
 
       lives = 1;
       extraLives = 0;
@@ -873,13 +862,15 @@
       reverseEndTime = 0;
       portalA = null;
       portalB = null;
-      allowFiring = true;  // Enable firing right away
-      portalPlacementActive = false;
+      allowFiring = false;  // wait until portals placed
+      portalPlacementActive = true; // start by placing A
       nextPortalType = "A";
       skipNextFire = false;
       draggingPortal = null;
       needToRotateB = false;
       justPlacedB = false;
+      draggingPaddle = false;
+      lastPointerX = 0;
       lastTeleportTime = 0;
       cannon = new Cannon();
       paddle = new Paddle();
@@ -936,15 +927,19 @@
     function draw() {
       ctx.clearRect(0, 0, VIRTUAL_WIDTH, VIRTUAL_HEIGHT);
 
+      // Draw bricks
       for (const b of bricks) b.draw(ctx);
 
+      // Draw cannon & paddle & balls
       if (cannon) cannon.draw(ctx);
       if (paddle) paddle.draw(ctx);
       balls.forEach(b => b.draw(ctx));
 
+      // Draw portals
       if (portalA) portalA.draw(ctx);
       if (portalB) portalB.draw(ctx);
 
+      // Top panel
       ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
       ctx.fillRect(0, 0, VIRTUAL_WIDTH, 60);
 
@@ -953,6 +948,7 @@
       ctx.fillText("Score: " + score, 10, 24);
       ctx.fillText("Lives: " + lives + "  Extra: " + extraLives, VIRTUAL_WIDTH - 200, 24);
 
+      // Reverse timer
       const now = Date.now();
       if (reverseActive) {
         let rem = Math.ceil((reverseEndTime - now) / 1000);
@@ -962,10 +958,21 @@
         ctx.fillText("Reverse: " + rem + "s", 10, 48);
       }
 
+      // If rotating Portal B, show instruction
       if (needToRotateB) {
         ctx.fillStyle = "#fff";
         ctx.font = "14px sans-serif";
-        ctx.fillText("Move cursor to set exit, then click to confirm", 20, VIRTUAL_HEIGHT - 20);
+        ctx.fillText("Move cursor to set exit, then tap to confirm", 20, VIRTUAL_HEIGHT - 20);
+      }
+      // If in portal placement mode, show hint
+      else if (portalPlacementActive) {
+        ctx.fillStyle = "#fff";
+        ctx.font = "20px sans-serif";
+        const hint = (nextPortalType === "A")
+          ? "Tap to place Portal A"
+          : "Tap to place Portal B";
+        const textWidth = ctx.measureText(hint).width;
+        ctx.fillText(hint, (VIRTUAL_WIDTH - textWidth) / 2, VIRTUAL_HEIGHT - 20);
       }
     }
 
@@ -998,11 +1005,13 @@
       if (gameState !== "playing") return;
       const { x, y } = getVirtualPointer(e);
 
+      // 1) If in portal placement mode, place accordingly
       if (portalPlacementActive) {
         placePortalAnytime(x, y);
         return;
       }
 
+      // 2) If Portal B exists and ready, start dragging:
       if (
         portalB &&
         canUsePortal(portalB) &&
@@ -1015,6 +1024,7 @@
         return;
       }
 
+      // 3) If Portal A exists and ready, start dragging:
       if (
         portalA &&
         canUsePortal(portalA) &&
@@ -1025,18 +1035,27 @@
         skipNextFire = true;
         return;
       }
+
+      // 4) Otherwise, start paddle drag if cannon fired
+      const effectiveX = reverseActive ? (VIRTUAL_WIDTH - x) : x;
+      if (!cannon.visible && !needToRotateB) {
+        draggingPaddle = true;
+        lastPointerX = effectiveX;
+      }
     });
 
     document.getElementById("canvasContainer").addEventListener("pointermove", e => {
       if (gameState !== "playing") return;
       const { x, y } = getVirtualPointer(e);
 
+      // If rotating Portal B:
       if (needToRotateB && portalB) {
         const cx = portalB.x + portalB.width / 2;
         const cy = portalB.y + portalB.height / 2;
         portalB.exitAngle = Math.atan2(y - cy, x - cx);
         return;
       }
+      // If dragging Portal B:
       if (draggingPortal === "B" && portalB) {
         portalB.x = x - portalB.width / 2;
         portalB.y = y - portalB.height / 2;
@@ -1044,6 +1063,7 @@
         portalB.y = Math.round(portalB.y / 10) * 10;
         return;
       }
+      // If dragging Portal A:
       if (draggingPortal === "A" && portalA) {
         portalA.x = x - portalA.width / 2;
         portalA.y = y - portalA.height / 2;
@@ -1052,48 +1072,70 @@
         return;
       }
 
+      // Otherwise: handle paddle drag or cannon aim
       const effectiveX = reverseActive ? (VIRTUAL_WIDTH - x) : x;
-      cannon.aim(effectiveX);
-      paddle.x = effectiveX - paddle.width / 2;
+      if (draggingPaddle) {
+        const dx = effectiveX - lastPointerX;
+        paddle.x += dx;
+        // Clamp within bounds
+        paddle.x = Math.max(0, Math.min(paddle.x, VIRTUAL_WIDTH - paddle.width));
+        lastPointerX = effectiveX;
+      } else {
+        cannon.aim(effectiveX);
+      }
     });
 
     canvas.addEventListener("pointerup", e => {
       if (gameState !== "playing") return;
       const { x, y } = getVirtualPointer(e);
 
+      // 1) If we were rotating Portal B:
       if (needToRotateB && portalB) {
+        // If it was just placed, ignore this pointerup:
         if (justPlacedB) {
           justPlacedB = false;
+          // After initial placement of B, still in portal mode until rotation
           return;
         }
+        // Otherwise finalize rotation:
         needToRotateB = false;
         portalB.lastMoveTime = Date.now();
         allowFiring = true;
         skipNextFire = true;
         return;
       }
+      // 2) If we were dragging Portal B:
       if (draggingPortal === "B" && portalB) {
         draggingPortal = null;
         portalB.lastMoveTime = Date.now();
+        // Immediately need to rotate the exit:
         needToRotateB = true;
         allowFiring = false;
         skipNextFire = true;
         return;
       }
+      // 3) If we were dragging Portal A:
       if (draggingPortal === "A" && portalA) {
         portalA.lastMoveTime = Date.now();
         draggingPortal = null;
         return;
       }
 
+      // 4) If skipNextFire is set, consume it and do nothing
       if (skipNextFire) {
         skipNextFire = false;
+        return;
+      }
+      // End paddle drag
+      if (draggingPaddle) {
+        draggingPaddle = false;
         return;
       }
       if (portalPlacementActive) {
         return;
       }
 
+      // Check if tap was inside a brick
       let insideBrick = false;
       for (const b of bricks) {
         if (
@@ -1104,6 +1146,7 @@
           break;
         }
       }
+      // Check if tap was inside Portal B
       let insideB = false;
       if (
         portalB &&
@@ -1113,18 +1156,10 @@
         insideB = true;
       }
 
+      // Fire if allowed, not clicking bricks or Portal B, and cannon visible
       if (allowFiring && !insideBrick && !insideB && cannon.visible) {
         fireBall();
       }
-    });
-
-    // “Place Portals” button
-    const placePortalsBtn = document.getElementById("placePortalsBtn");
-    placePortalsBtn.addEventListener("click", () => {
-      if (portalPlacementActive) return;
-      portalPlacementActive = true;
-      nextPortalType = "A";
-      placePortalsBtn.textContent = "Place Portal A";
     });
 
     // “Restart” button
@@ -1132,7 +1167,7 @@
       initGame();
     });
 
-    // ===== Start =====
+    // ===== Start the game =====
     initGame();
     lastTime = performance.now();
     requestAnimationFrame(gameLoop);
