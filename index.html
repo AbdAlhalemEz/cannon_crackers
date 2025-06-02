@@ -435,6 +435,11 @@
           if (b.isInvisible) return b.hp > 0;
           return b.hp > 0;
         });
+
+        // If only 3 bricks left, add a new row immediately
+        if (bricks.length <= 3) {
+          addNewRow();
+        }
       }
 
       reflect(brick, delta) {
@@ -474,10 +479,10 @@
       }
     }
 
-    // 2) Paddle
+    // 2) Paddle (made larger)
     class Paddle {
       constructor() {
-        this.width = 100;
+        this.width = 150;  // increased from 100 to 150
         this.height = 10;
         this.x = (VIRTUAL_WIDTH - this.width) / 2;
         this.y = VIRTUAL_HEIGHT - this.height;
