@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Portal Breaker – Fade‐Ready Portals</title>
+  <title>Portal Breaker – Endless Rows</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
   <style>
@@ -105,8 +105,9 @@
 
   <script>
     // ============================
-    // Portal Breaker – Fade‐Ready Portals
+    // Portal Breaker – Endless Rows
     // ============================
+
     const canvas = document.getElementById("gameCanvas");
     const ctx = canvas.getContext("2d");
     const VIRTUAL_WIDTH = 480;
@@ -145,6 +146,9 @@
     const BRICK_WIDTH = 60;
     const BRICK_HEIGHT = 20;
     const BRICK_MARGIN = 5;
+
+    // Number of rows currently in play (starts at 4)
+    let currentRowCount = 4;
 
     // ======= Helper for Rounded Rectangles =======
     function drawRoundedRect(ctx, x, y, w, h, r) {
@@ -193,8 +197,12 @@
           !this.justTeleported &&
           portalA.collidesWith(this)
         ) {
-          this.teleportToPortalB();
+          // Freeze portals on teleport
+          portalA.lastMoveTime = Date.now();
+          portalB.lastMoveTime = Date.now();
           lastTeleportTime = Date.now();
+
+          this.teleportToPortalB();
           return; // skip rest this frame
         }
 
@@ -413,15 +421,14 @@
           return b.hp > 0;
         });
 
-        // Win check
+        // Win check (if no bricks remain)
         const normalLeft = bricks.filter(b =>
           !b.isExtra && !b.isCursed && !b.isSpeedUp &&
           !b.isSlowDown && !b.isSticky && !b.isTeleport &&
           !b.isInvisible && !b.isBomb && !b.isDouble
         ).length;
-        if (normalLeft === 0) {
-          endGame(true);
-        }
+        // We do NOT end the game when all initial bricks are gone,
+        // because new rows will be added. Only end if player dies.
       }
 
       reflect(brick, delta) {
@@ -477,7 +484,7 @@
 
     // 3) Brick
     class Brick {
-      constructor(x, y, type = "normal") {
+      constructor(x, y, type = "normal", maxHP = 4) {
         this.x = x;
         this.y = y;
         this.isExtra    = (type === "extra");
@@ -503,9 +510,9 @@
         ) {
           this.initialHP = 1;
         } 
-        // Otherwise a normal brick gets random HP 1–10:
+        // Otherwise a normal brick gets random HP 1..maxHP:
         else {
-          this.initialHP = Math.floor(Math.random() * 10) + 1;
+          this.initialHP = Math.floor(Math.random() * maxHP) + 1;
         }
 
         this.hp = this.initialHP;
@@ -775,9 +782,11 @@
       allowFiring = false;
     }
 
-    function setupBricks() {
+    // Create initial rows of bricks
+    function setupInitialBricks() {
       bricks = [];
-      for (let row = 0; row < 3; row++) {
+      const initialRows = currentRowCount; // starts at 4
+      for (let row = 0; row < initialRows; row++) {
         const y = 40 + row * (BRICK_HEIGHT + BRICK_MARGIN);
         for (let i = 0; i < 7; i++) {
           const x = 40 + i * (BRICK_WIDTH + BRICK_MARGIN);
@@ -792,34 +801,41 @@
           else if (rnd < 0.35)   type = "invisible"; // 5%
           else if (rnd < 0.40)   type = "bomb";      // 5%
           else if (rnd < 0.45)   type = "double";    // 5%
-          bricks.push(new Brick(x, y, type));
+          // For initial rows, maxHP = 4
+          bricks.push(new Brick(x, y, type, 4));
         }
       }
-      // Ensure at least one of each special type
-      const ensureType = t => {
-        if (!bricks.some(b => (
-            (t==="extra"    && b.isExtra   ) ||
-            (t==="cursed"   && b.isCursed  ) ||
-            (t==="speedup"  && b.isSpeedUp ) ||
-            (t==="slowdown" && b.isSlowDown) ||
-            (t==="sticky"   && b.isSticky  ) ||
-            (t==="teleport" && b.isTeleport) ||
-            (t==="invisible"&& b.isInvisible) ||
-            (t==="bomb"     && b.isBomb    ) ||
-            (t==="double"   && b.isDouble  )
-        ))) {
+      // Ensure at least one of each special type among initial bricks
+      ensureSpecialTypes(4);
+    }
+
+    // Ensure that among current bricks, at least one of each special appears
+    function ensureSpecialTypes(maxHP) {
+      const types = ["extra","cursed","speedup","slowdown","sticky","teleport","invisible","bomb","double"];
+      types.forEach(t => {
+        if (!bricks.some(b => 
+          (t==="extra"    && b.isExtra   ) ||
+          (t==="cursed"   && b.isCursed  ) ||
+          (t==="speedup"  && b.isSpeedUp ) ||
+          (t==="slowdown" && b.isSlowDown) ||
+          (t==="sticky"   && b.isSticky  ) ||
+          (t==="teleport" && b.isTeleport) ||
+          (t==="invisible"&& b.isInvisible) ||
+          (t==="bomb"     && b.isBomb    ) ||
+          (t==="double"   && b.isDouble  )
+        )) {
+          // Replace a random brick with this specialty
           const idx = Math.floor(Math.random() * bricks.length);
           const b = bricks[idx];
-          // Clear all flags, then set this one
-          b.isExtra    = b.isCursed = b.isSpeedUp = b.isSlowDown =
-          b.isSticky   = b.isTeleport = b.isInvisible = b.isBomb = b.isDouble = false;
+          b.isExtra = b.isCursed = b.isSpeedUp = b.isSlowDown =
+          b.isSticky = b.isTeleport = b.isInvisible = b.isBomb = b.isDouble = false;
           b.hasBeenHitOnce = false;
           b.collected = false;
-          if (t === "extra")    b.isExtra    = true;
-          else if (t === "cursed")   b.isCursed   = true;
-          else if (t === "speedup")  b.isSpeedUp  = true;
+          if (t === "extra")    b.isExtra = true;
+          else if (t === "cursed")   b.isCursed = true;
+          else if (t === "speedup")  b.isSpeedUp = true;
           else if (t === "slowdown") b.isSlowDown = true;
-          else if (t === "sticky")   b.isSticky   = true;
+          else if (t === "sticky")   b.isSticky = true;
           else if (t === "teleport") b.isTeleport = true;
           else if (t === "invisible") {
             b.isInvisible = true;
@@ -837,10 +853,45 @@
             b.hp = 1;
           }
         }
-      };
-      [
-        "extra","cursed","speedup","slowdown","sticky","teleport","invisible","bomb","double"
-      ].forEach(ensureType);
+      });
+    }
+
+    // Add one new row at the top, shifting existing bricks downward
+    function addNewRow() {
+      // Only add if there are still bricks remaining
+      if (bricks.length === 0) return;
+
+      // Shift every existing brick down by one row height
+      for (const b of bricks) {
+        b.y += (BRICK_HEIGHT + BRICK_MARGIN);
+      }
+
+      // Increment row count
+      currentRowCount++;
+      const newRowIndex = currentRowCount; // e.g. 5 on first addition
+
+      // y-coordinate for the new top row
+      const yTop = 40;
+
+      for (let i = 0; i < 7; i++) {
+        const x = 40 + i * (BRICK_WIDTH + BRICK_MARGIN);
+        let type = "normal";
+        const rnd = Math.random();
+        if (rnd < 0.05)        type = "cursed";    // 5%
+        else if (rnd < 0.10)   type = "extra";     // 5%
+        else if (rnd < 0.15)   type = "speedup";   // 5%
+        else if (rnd < 0.20)   type = "slowdown";  // 5%
+        else if (rnd < 0.25)   type = "sticky";    // 5%
+        else if (rnd < 0.30)   type = "teleport";  // 5%
+        else if (rnd < 0.35)   type = "invisible"; // 5%
+        else if (rnd < 0.40)   type = "bomb";      // 5%
+        else if (rnd < 0.45)   type = "double";    // 5%
+        // maxHP = currentRowCount
+        bricks.push(new Brick(x, yTop, type, currentRowCount));
+      }
+
+      // Ensure at least one of each special type in that new row
+      ensureSpecialTypes(currentRowCount);
     }
 
     function endGame(win) {
@@ -876,11 +927,20 @@
       cannon = new Cannon();
       paddle = new Paddle();
       ball = null;
-      setupBricks();
+
+      currentRowCount = 4; // start with 4 rows
+      setupInitialBricks();
+
       gameState = "playing";
       canvas.style.pointerEvents = "auto";
       document.getElementById("gameOverScreen").classList.add("hidden");
+
       draw(); // initial draw
+
+      // Start the “add row every 1 minute” timer
+      // If a previous interval exists, clear it
+      if (window.addRowInterval) clearInterval(window.addRowInterval);
+      window.addRowInterval = setInterval(addNewRow, 60_000);
     }
 
     let lastTime = 0;
@@ -987,7 +1047,7 @@
         return;
       }
 
-      // 2) If Portal B exists, on cooldown, and not waiting to rotate:
+      // 2) If Portal B exists and ready, start dragging:
       if (
         portalB &&
         canUsePortal(portalB) &&
@@ -995,13 +1055,12 @@
         x >= portalB.x && x <= portalB.x + portalB.width &&
         y >= portalB.y && y <= portalB.y + portalB.height
       ) {
-        // Start dragging Portal B
         draggingPortal = "B";
         skipNextFire = true;
         return;
       }
 
-      // 3) If Portal A exists, on cooldown:
+      // 3) If Portal A exists and ready, start dragging:
       if (
         portalA &&
         canUsePortal(portalA) &&
